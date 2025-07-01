@@ -3,16 +3,16 @@ try:
 except ImportError:
     from urlparse import urljoin
 
-import requests
+import configparser
 import json
 import time
 import warnings
+
+import requests
 from past.types import basestring
-import configparser
 
 from . import auth, curves, events, util
 from .util import CurveException
-
 
 RETRY_COUNT = 4    # Number of times to retry
 RETRY_DELAY = 0.5  # Delay between retried calls, in seconds.

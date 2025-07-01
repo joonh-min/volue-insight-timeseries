@@ -5,19 +5,19 @@
 
 import calendar
 import datetime
-import dateutil.parser
-import pandas as pd
-import numpy as np
 import warnings
+
+import dateutil.parser
+import numpy as np
+import pandas as pd
 from past.types import basestring
+from zoneinfo import ZoneInfo
+from zoneinfo._common import ZoneInfoNotFoundError
 
 try:
     from urllib.parse import quote_plus
 except ImportError:
     from urllib import quote_plus
-from zoneinfo import ZoneInfo
-from zoneinfo._common import ZoneInfoNotFoundError
-
 
 # Curve types
 TIME_SERIES = "TIME_SERIES"

@@ -3,8 +3,9 @@
 #
 
 import os
-from .session import Session
+
 from . import auth, curves, events, session, util
+from .session import Session
 
 here = os.path.abspath(os.path.dirname(__file__))
 with open(os.path.join(here, 'VERSION')) as fv:

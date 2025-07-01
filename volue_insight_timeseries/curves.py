@@ -1,5 +1,6 @@
-from past.types import basestring
 import warnings
+
+from past.types import basestring
 
 from . import util
 

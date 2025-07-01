@@ -1,13 +1,12 @@
 import contextlib
 import json
+import queue
+import threading
 import time
 
 import sseclient
-import threading
-import queue
 
 from . import curves, util
-from builtins import str
 
 
 class EventListener:

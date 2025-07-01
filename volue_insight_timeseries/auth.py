@@ -3,8 +3,8 @@
 #
 
 import json
-import time
 import threading
+import time
 
 try:
     from urllib.parse import urljoin
