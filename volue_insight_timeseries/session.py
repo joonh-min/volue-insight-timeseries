@@ -1,12 +1,9 @@
-try:
-    from urllib.parse import urljoin
-except ImportError:
-    from urlparse import urljoin
 
 import configparser
 import json
 import time
 import warnings
+from urllib.parse import urljoin
 
 import requests
 from past.types import basestring
