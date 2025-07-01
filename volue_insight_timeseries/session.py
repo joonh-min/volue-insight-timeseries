@@ -1,8 +1,10 @@
+from __future__ import annotations
 
-import configparser
 import json
 import time
 import warnings
+from configparser import RawConfigParser
+from typing import Union
 from urllib.parse import urljoin
 
 import requests
@@ -59,27 +61,25 @@ class Session:
 
     """
 
-    def __init__(self, urlbase=None, config_file=None, client_id=None, client_secret=None,
-                 auth_urlbase=None, timeout=None, retry_update_auth=False):
-        self.urlbase = API_URLBASE
-        self.auth = None
-        self.timeout = TIMEOUT
+    def __init__(self, urlbase:str|None=None, config_file:str|RawConfigParser|None=None, client_id:str|None=None, client_secret:str|None=None,
+                 auth_urlbase:str|None=None, timeout:float|None=None, retry_update_auth:bool=False):
+        self.urlbase:str = urlbase if urlbase is not None else API_URLBASE
+        self.auth:auth.OAuth | None = None
+        self.timeout:float = timeout if timeout is not None else TIMEOUT
         self._session = requests.Session()
         self.retry_update_auth = retry_update_auth
         if config_file is not None:
             self.read_config_file(config_file)
         elif client_id is not None and client_secret is not None:
             self.configure(client_id, client_secret, auth_urlbase)
-        if urlbase is not None:
-            self.urlbase = urlbase
         if timeout is not None:
             self.timeout = timeout
 
-    def read_config_file(self, config_file):
+    def read_config_file(self, config_file:str|RawConfigParser):
         """Set up according to configuration file with hosts and access details"""
         if self.auth is not None:
             raise ConfigException('Session configuration is already done')
-        config = configparser.RawConfigParser()
+        config = RawConfigParser()
         # Support being given a file-like object or a file path:
         if hasattr(config_file, 'read'):
             config.read_file(config_file)
