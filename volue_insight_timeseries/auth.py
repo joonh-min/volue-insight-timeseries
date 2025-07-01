@@ -5,7 +5,10 @@
 import json
 import threading
 import time
+from typing import Union
 from urllib.parse import urljoin
+
+from .session import Session
 
 
 class AuthFailedException(Exception):
@@ -18,17 +21,17 @@ class OAuth:
     This is the main authentication mechanism for customer access to the data center.
     """
 
-    def __init__(self, session, client_id, client_secret, auth_urlbase):
+    def __init__(self, session:Session, client_id:str, client_secret:str, auth_urlbase:str)->None:
         self.client_id = client_id
         self.client_secret = client_secret
         self.auth_urlbase = auth_urlbase
-        self.token = None
-        self.token_type = None
-        self.valid_until = None
+        self.token:Union[str,None] = None
+        self.token_type:Union[str,None] = None
+        self.valid_until:Union[float,None] = None
         self.session = session
         self._authenticate()
 
-    def validate_auth(self):
+    def validate_auth(self)->None:
         """Check valid_until and fetch new token if needed"""
         # To avoid sending duplicated authentication requests in other threads
         with threading.Lock():
@@ -45,6 +48,8 @@ class OAuth:
         auth = (self.client_id, self.client_secret)
         data = {'grant_type': 'client_credentials'}
         response = self.session.send_data_request('POST', self.auth_urlbase, url, rawdata=data, authval=auth)
+        if response is None:
+            raise AuthFailedException('Authentication failed: No response received')
         if response.status_code != 200:
             raise AuthFailedException('Authentication failed: {}'.format(response.content))
         # Parse token
@@ -53,8 +58,8 @@ class OAuth:
         self.token_type = rsp['token_type']
         self.valid_until = now + int(rsp['expires_in'] * 0.95)
 
-    def get_headers(self, data):
+    def get_headers(self)->dict[str,str]:
         """The web-token auth header is simple"""
         if self.token is not None and self.token_type is not None:
-            return {'Authorization': '{} {}'.format(self.token_type, self.token)}
+            return {'Authorization': f'{self.token_type} {self.token}'}
         return {}

@@ -4,13 +4,42 @@ import json
 import time
 import warnings
 from configparser import RawConfigParser
-from typing import Union
+from typing import Any, Literal, TypedDict, TypeVar, Union, overload
 from urllib.parse import urljoin
 
 import requests
 
 from . import auth, curves, events, util
 from .util import CurveException
+
+try:
+    from typing import NotRequired
+except ImportError:
+    from typing_extensions import NotRequired
+
+
+_TsFreqs = Literal["Y", "S", "Q", "M", "W", "H12", "H6", "H3", "H", "MIN30", "MIN15", "MIN5", "MIN", "D"]
+
+class Metadata(TypedDict):
+    id: int
+    name: str
+    frequency: _TsFreqs
+    timezone: str
+    curve_type: Literal["TAGGED_INSTANCES", "INSTANCES", "TAGGED", "TIME_SERIES"]
+    curve_state: Literal["PUBLIC"] | str
+    created: str
+    modified: str
+    issue_frequency: NotRequired[str]
+    area: str
+    categories: list[str]
+    commodity: str
+    unit: str
+    station: NotRequired[str]
+    sources: NotRequired[str]
+    hasAccess: bool
+    accessRange: dict[Literal["begin", "end", "empty"], str|None]
+    data_type: str
+    description: str
 
 RETRY_COUNT = 4    # Number of times to retry
 RETRY_DELAY = 0.5  # Delay between retried calls, in seconds.
@@ -109,7 +138,7 @@ class Session:
         auth_urlbase = auth_urlbase if auth_urlbase is not None else AUTH_URLBASE
         self.auth = auth.OAuth(self, client_id, client_secret, auth_urlbase)
 
-    def get_curve(self, id=None, name=None):
+    def get_curve(self, id:int|None=None, name:str|None=None) -> curves.curveType:
         """Getting a curve object
 
         Return a curve object of the correct type.  Name should be specified.
@@ -138,16 +167,30 @@ class Session:
         if id is None and name is None:
             raise MetadataException('No curve specified')
 
-        if id is not None:
-            arg = util.make_arg('id', id)
-        else:
-            arg = util.make_arg('name', name)
+        arg = util.make_arg('id', id) if id is not None else util.make_arg('name', name)
         response = self.data_request('GET', self.urlbase, '/api/curves/get?{}'.format(arg))
         return self.handle_single_curve_response(response)
 
-    def search(self, query=None, id=None, name=None, commodity=None, category=None, area=None, station=None,
-               source=None, scenario=None, unit=None, time_zone=None, version=None, frequency=None, data_type=None,
-               curve_state=None, modified_since=None, only_accessible=None):
+    def search(
+        self,
+        query:str|None=None,
+        id:int|list[int]|None=None,
+        name:str|list[str]|None=None,
+        commodity:str|list[str]|None=None,
+        category:str|list[str]|None=None,
+        area:str|list[str]|None=None,
+        station:str|list[str]|None=None,
+        source:str|list[str]|None=None,
+        scenario:str|list[str]|None=None,
+        unit:str|list[str]|None=None,
+        time_zone:str|list[str]|None=None,
+        version:str|list[str]|None=None,
+        frequency:_TsFreqs|list[_TsFreqs]|None=None,
+        data_type:str|list[str]|None=None,
+        curve_state:str|list[str]|None=None,
+        modified_since=None,
+        only_accessible:bool=False
+    )->list[curves.curveType]:
         """
         Search for a curve matching various metadata.
 
@@ -279,19 +322,19 @@ class Session:
         }
         if id is not None:
             warnings.warn("Searching for curves by ID will be removed in the future.", FutureWarning, stacklevel=2)
-        args = []
-        astr = ''
+        args:list[str] = []
+        astr:str = ''
         for key, val in search_terms.items():
             if val is None:
                 continue
             args.append(util.make_arg(key, val))
-        if len(args):
+        if args:
             astr = "?{}".format("&".join(args))
         # Now run the search, and try to produce a list of curves
         response = self.data_request('GET', self.urlbase, '/api/curves{}'.format(astr))
         return self.handle_multi_curve_response(response)
 
-    def make_curve(self, id, curve_type):
+    def make_curve(self, id:int, curve_type:Literal["TIME_SERIES", "TAGGED", "INSTANCES", "TAGGED_INSTANCES"])->curves.curveType:
         """Return a mostly uninitialized curve object of the correct type.
         This is generally a bad idea, use get_curve or search when possible."""
         if curve_type in self._curve_types:
@@ -306,104 +349,106 @@ class Session:
                    'units', 'time_zones', 'versions', 'frequencies', 'data_types',
                    'curve_states', 'curve_types', 'functions', 'filters'}
 
-    def get_commodities(self):
+    def get_commodities(self)->requests.Response|None:
         """
         Get valid values for the commodity attribute
         """
         return self.get_attribute('commodities')
 
-    def get_categories(self):
+    def get_categories(self)->requests.Response|None:
         """
         Get valid values for the category attribute
         """
         return self.get_attribute('categories')
 
-    def get_areas(self):
+    def get_areas(self)->requests.Response|None:
         """
         Get valid values for the area attribute
         """
         return self.get_attribute('areas')
 
-    def get_stations(self):
+    def get_stations(self)->requests.Response|None:
         """
         Get valid values for the station attribute
         """
         return self.get_attribute('stations')
 
-    def get_sources(self):
+    def get_sources(self)->requests.Response|None:
         """
         Get valid values for the source attribute
         """
         return self.get_attribute('sources')
 
-    def get_scenarios(self):
+    def get_scenarios(self)->requests.Response|None:
         """
         Get valid values for the scenarios attribute
         """
         return self.get_attribute('scenarios')
 
-    def get_units(self):
+    def get_units(self)->requests.Response|None:
         """
         Get valid values for the unit attribute
         """
         return self.get_attribute('units')
 
-    def get_time_zones(self):
+    def get_time_zones(self)->requests.Response|None:
         """
         Get valid values for the time zone attribute
         """
         return self.get_attribute('time_zones')
 
-    def get_versions(self):
+    def get_versions(self)->requests.Response|None:
         """
         Get valid values for the version attribute
         """
         return self.get_attribute('versions')
 
-    def get_frequencies(self):
+    def get_frequencies(self)->requests.Response|None:
         """
         Get valid values for the frequency attribute
         """
         return self.get_attribute('frequencies')
 
-    def get_data_types(self):
+    def get_data_types(self)->requests.Response|None:
         """
         Get valid values for the data_type attribute
         """
         return self.get_attribute('data_types')
 
-    def get_curve_states(self):
+    def get_curve_states(self)->requests.Response|None:
         """
         Get valid values for the curve_state attribute
         """
         return self.get_attribute('curve_states')
 
-    def get_curve_types(self):
+    def get_curve_types(self)->requests.Response|None:
         """
         Get valid values for the curve_type attribute
         """
         return self.get_attribute('curve_types')
 
-    def get_functions(self):
+    def get_functions(self)->requests.Response|None:
         """
         Get valid values for the function attribute
         """
         return self.get_attribute('functions')
 
-    def get_filters(self):
+    def get_filters(self)->requests.Response|None:
         """
         Get valid values for the filter attribute
         """
         return self.get_attribute('filters')
 
-    def get_attribute(self, attribute):
+    def get_attribute(self, attribute:str)->requests.Response|None:
         """Get valid values for an attribute."""
         if attribute not in self._attributes:
             raise MetadataException('Attribute {} is not valid'.format(attribute))
         response = self.data_request('GET', self.urlbase, '/api/{}'.format(attribute))
+        if response is None:
+            return response
         if response.status_code == 200:
             return response.json()
-        elif response.status_code == 204:
+        if response.status_code == 204:
             return None
         raise MetadataException('Failed loading {}: {}'.format(attribute,
                                                                response.content.decode()))
@@ -417,72 +462,77 @@ class Session:
 
     _meta_keys = ('id', 'name', 'frequency', 'time_zone', 'curve_type')
 
-    def _build_curve(self, metadata):
+    def _build_curve(self, metadata:Metadata)->curves.curveType:
         for key in self._meta_keys:
             if key not in metadata:
                 raise MetadataException('Mandatory key {} not found in metadata'.format(key))
         curve_id = int(metadata['id'])
         if metadata['curve_type'] in self._curve_types:
-            c = self._curve_types[metadata['curve_type']](curve_id, metadata, self)
-            return c
+            return self._curve_types[metadata["curve_type"]](curve_id, metadata, self)
         raise CurveException('Unknown curve type ({})'.format(metadata['curve_type']))
 
-    def _get_auth_header_with_retry(self, databytes, retries=RETRY_COUNT):
+    def _get_auth_header_with_retry(self, retries:int=RETRY_COUNT)-> dict[str, str]:
+        if self.auth is None:
+            raise MetadataException('No authentication configured for this session')
+
         try:
             self.auth.validate_auth()
-            return self.auth.get_headers(databytes)
-        except Exception as e:
+            return self.auth.get_headers()
+        except Exception:
             if retries <= 0:
-                raise e
+                raise
             if RETRY_DELAY > 0:
                 time.sleep(RETRY_DELAY)
-            return self._get_auth_header_with_retry(databytes, retries - 1)
+            return self._get_auth_header_with_retry(retries - 1)
 
-    def _validate_auth(self, data, rawdata):
-        headers = {}
+    def _validate_auth(self, data:Any, rawdata:bytes|None)->dict[str,str]:
+        headers:dict[str,str] = {}
 
-        databytes = None
-        if data is not None:
+        if data is not None or rawdata is not None:
             headers['content-type'] = 'application/json'
-            if isinstance(data, str):
-                databytes = data.encode()
-            else:
-                databytes = json.dumps(data).encode()
-        if data is None and rawdata is not None:
-            databytes = rawdata
         if self.auth is not None:
             # Beta-feature: Only update auth with retry if explicitly requested
             if self.retry_update_auth:
-                auth_header = self._get_auth_header_with_retry(databytes)
+                auth_header = self._get_auth_header_with_retry()
                 headers.update(auth_header)
             else:
                 self.auth.validate_auth()
-                headers.update(self.auth.get_headers(databytes))
+                headers.update(self.auth.get_headers())
 
         return headers
 
-    def send_data_request(self, req_type, urlbase, url, data=None, rawdata=None, headers=None, authval=None,
-                     stream=False, retries=RETRY_COUNT):
-        if not urlbase:
+    def send_data_request(
+        self,
+        req_type: Literal["GET", "POST"],
+        urlbase: str | None,
+        url: str,
+        data:Any=None,
+        rawdata:bytes|None=None,
+        headers:dict[str,str]|None=None,
+        authval:tuple[str,str]|None=None,
+        stream: bool = False,
+        retries: int = RETRY_COUNT,
+    ) -> requests.Response | None:
+        if urlbase is None:
             urlbase = self.urlbase
         longurl = urljoin(urlbase, url)
 
         databytes = None
         if data is not None:
-            if isinstance(data, str):
-                databytes = data.encode()
-            else:
-                databytes = json.dumps(data).encode()
+            databytes = data.encode() if isinstance(data, str) else json.dumps(data).encode()
         if data is None and rawdata is not None:
             databytes = rawdata
         timeout = None
+        status_code = None
         try:
-            res = self._session.request(method=req_type, url=longurl, data=databytes,
-                                        headers=headers, auth=authval, stream=stream, timeout=self.timeout)
+            res = self._session.request(
+                method=req_type, url=longurl, data=databytes, headers=headers, auth=authval, stream=stream, timeout=self.timeout
+            )
+            status_code = res.status_code
         except requests.exceptions.Timeout as e:
             timeout = e
             res = None
-        if (timeout is not None or (500 <= res.status_code < 600) or res.status_code == 408) and retries > 0:
+        if status_code is not None and (timeout is not None or (500 <= status_code < 600) or status_code == 408) and retries > 0:
             if RETRY_DELAY > 0:
                 time.sleep(RETRY_DELAY)
             return self.send_data_request(req_type, urlbase, url, data, rawdata, headers, authval, stream, retries-1)
@@ -490,27 +540,36 @@ class Session:
             raise timeout
         return res
 
-    def data_request(self, req_type, urlbase, url, data=None, rawdata=None, authval=None,
-                     stream=False, retries=RETRY_COUNT):
+    def data_request(
+        self,
+        req_type: Literal["GET", "POST"],
+        urlbase: str,
+        url: str,
+        data: Any = None,
+        rawdata: bytes | None = None,
+        authval:tuple[str,str]|None=None,
+        stream: bool = False,
+        retries: int = RETRY_COUNT,
+    ) -> requests.Response | None:
         """Run a call to the backend, dealing with authentication etc."""
         headers = self._validate_auth(data, rawdata)
-        res = self.send_data_request(req_type, urlbase, url, data, rawdata, headers, authval, stream, retries)
-        return res
+        return self.send_data_request(req_type, urlbase, url, data, rawdata, headers, authval, stream, retries)
 
-    def handle_single_curve_response(self, response):
+    def handle_single_curve_response(self, response)-> curves.curveType:
+        if response is None:
+            raise MetadataException('Failed to load curve: No response received') from None
         if not response.ok:
             raise MetadataException('Failed to load curve: {}'
-                                    .format(response.content.decode()))
-        metadata = response.json()
+                                    .format(response.content.decode())) from None
+        metadata:Metadata = response.json()
         return self._build_curve(metadata)
 
-    def handle_multi_curve_response(self, response):
+    def handle_multi_curve_response(self, response:requests.Response|None)-> list[curves.curveType]:
+        if response is None:
+            raise MetadataException('Curve search failed: No response received') from None
         if not response.ok:
             raise MetadataException('Curve search failed: {}'
-                                    .format(response.content.decode()))
-        metadata_list = response.json()
+                                    .format(response.content.decode())) from None
+        metadata_list:list[Metadata] = response.json()
 
-        result = []
-        for metadata in metadata_list:
-            result.append(self._build_curve(metadata))
-        return result
+        return [self._build_curve(metadata) for metadata in metadata_list]
