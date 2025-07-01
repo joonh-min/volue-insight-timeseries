@@ -153,7 +153,7 @@ class TS(object):
         dropped = mapped_freq.dropna()
 
         # Warn about edge case for Gas Day timezone during DST changes.
-        # Gas Day is a 24-hour period starting at 4:00 UTC in summer and 5:00 UTC in winter, 
+        # Gas Day is a 24-hour period starting at 4:00 UTC in summer and 5:00 UTC in winter,
         # and finishing at 4:00 UTC (or 5:00) the next day. corresponding to 6:00 local time in Germany year-round.
         # A gas loader bug causes timestamps on the day after DST to shift to 5:00 or 7:00 instead of 6:00.
         if len(self.points) != len(dropped):

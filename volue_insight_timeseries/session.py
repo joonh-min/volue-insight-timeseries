@@ -462,9 +462,9 @@ class Session(object):
             else:
                 self.auth.validate_auth()
                 headers.update(self.auth.get_headers(databytes))
-        
+
         return headers
-    
+
     def send_data_request(self, req_type, urlbase, url, data=None, rawdata=None, headers=None, authval=None,
                      stream=False, retries=RETRY_COUNT):
         if not urlbase:

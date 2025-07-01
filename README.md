@@ -6,15 +6,15 @@ https://api.volueinsight.com/ (or equivalent services). Note that access
 is based on having a valid Volue Insight account. Please contact
 sales.insight@volue.com in order to get a trial account.
 
-The library is tested against Python 3.9, 3.10, 3.11 and 3.12 - we recommend using 
+The library is tested against Python 3.9, 3.10, 3.11 and 3.12 - we recommend using
 the latest Python version.
 
 
 ## Documentation
 
-The 
-[documentation](https://wattsight-volue-insight-timeseries.readthedocs-hosted.com/en/master/) 
-with various 
+The
+[documentation](https://wattsight-volue-insight-timeseries.readthedocs-hosted.com/en/master/)
+with various
 [examples](https://wattsight-volue-insight-timeseries.readthedocs-hosted.com/en/master/examples.html)
 is hosted on Read the Docs.
 
@@ -48,11 +48,11 @@ together with [release notes](https://github.com/volueinsight/volue-insight-time
 
 ## Migrating from wapi-python
 If you previously have used wapi-python, you should switch to use this package
-going forward. We will not add any new features to wapi-python, it is only in 
+going forward. We will not add any new features to wapi-python, it is only in
 the event of a severe bug that we will do any changes to it.
 
 These are the steps you will have to do in order to successfully
-make the switch. 
+make the switch.
 
 * Use Python 3.9, 3.10, 3.11 or 3.12
 * Use Pandas 1.5.0 or newer
