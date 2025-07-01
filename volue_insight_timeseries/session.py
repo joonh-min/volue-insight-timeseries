@@ -6,7 +6,6 @@ import warnings
 from urllib.parse import urljoin
 
 import requests
-from past.types import basestring
 
 from . import auth, curves, events, util
 from .util import CurveException
@@ -445,7 +444,7 @@ class Session(object):
         databytes = None
         if data is not None:
             headers['content-type'] = 'application/json'
-            if isinstance(data, basestring):
+            if isinstance(data, str):
                 databytes = data.encode()
             else:
                 databytes = json.dumps(data).encode()
@@ -470,7 +469,7 @@ class Session(object):
 
         databytes = None
         if data is not None:
-            if isinstance(data, basestring):
+            if isinstance(data, str):
                 databytes = data.encode()
             else:
                 databytes = json.dumps(data).encode()

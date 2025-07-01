@@ -11,7 +11,6 @@ from urllib.parse import quote_plus
 import dateutil.parser
 import numpy as np
 import pandas as pd
-from past.types import basestring
 from zoneinfo import ZoneInfo
 from zoneinfo._common import ZoneInfoNotFoundError
 
@@ -362,7 +361,7 @@ def is_integer(s):
 
 
 def make_arg(key, value):
-    if hasattr(value, "__iter__") and not isinstance(value, basestring):
+    if hasattr(value, "__iter__") and not isinstance(value, str):
         return "&".join([make_arg(key, v) for v in value])
 
     if isinstance(value, datetime.date):
