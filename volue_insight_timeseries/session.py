@@ -25,7 +25,7 @@ class MetadataException(Exception):
     pass
 
 
-class Session(object):
+class Session:
     """ Establish a connection to Wattsight API
 
     Creates an object that holds the state which is needed when talking to the
