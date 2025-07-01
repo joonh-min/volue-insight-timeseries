@@ -61,7 +61,8 @@ class Session:
 
     """
 
-    def __init__(self, urlbase:str|None=None, config_file:str|RawConfigParser|None=None, client_id:str|None=None, client_secret:str|None=None,
+    def __init__(self, urlbase:str|None=None, config_file:str|RawConfigParser|None=None,
+                 client_id:str|None=None, client_secret:str|None=None,
                  auth_urlbase:str|None=None, timeout:float|None=None, retry_update_auth:bool=False):
         self.urlbase:str = urlbase if urlbase is not None else API_URLBASE
         self.auth:auth.OAuth | None = None
@@ -101,12 +102,11 @@ class Session:
         if timeout is not None:
             self.timeout = float(timeout)
 
-    def configure(self, client_id, client_secret, auth_urlbase=None):
+    def configure(self, client_id:str, client_secret:str, auth_urlbase:str|None=None):
         """Programmatically set authentication parameters"""
         if self.auth is not None:
             raise ConfigException('Session configuration is already done')
-        if auth_urlbase is None:
-            auth_urlbase = AUTH_URLBASE
+        auth_urlbase = auth_urlbase if auth_urlbase is not None else AUTH_URLBASE
         self.auth = auth.OAuth(self, client_id, client_secret, auth_urlbase)
 
     def get_curve(self, id=None, name=None):
