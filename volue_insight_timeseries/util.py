@@ -124,6 +124,17 @@ class TS:
         size = " size: {}".format(len(self.points)) if self.points else ""
         return "TS: {}{}".format(self.fullname, size)
 
+    def __repr__(self) -> str:
+        name = self.name if self.name is not None else str(self.id)
+        attrs = [
+            f"id={self.id}" if self.id is not None else "",
+            f"tag={self.tag}" if self.tag is not None else "",
+            f"issue_date={self.issue_date}" if self.issue_date is not None else "",
+            f"size={len(self.points)}" if self.points else ""
+        ]
+        attrs_str = ", ".join(filter(None, attrs))
+        return f"TS(name={name}{', ' + attrs_str if attrs_str else ''})"
+
     @property
     def fullname(self):
         attrs = []
