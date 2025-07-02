@@ -135,6 +135,24 @@ class TS:
         attrs_str = ", ".join(filter(None, attrs))
         return f"TS(name={name}{', ' + attrs_str if attrs_str else ''})"
 
+    def __lt__(self, other: TS) -> bool:
+        """
+        Compare two TS objects for sorting.
+
+        Order is: issue_date, id, name, tag, then object id.
+        """
+        def keys(ts):
+            return (
+                (
+                    ts.issue_date if ts.issue_date is not None else "",
+                    ts.id if ts.id is not None else float("inf"),
+                    ts.name if ts.name is not None else "",
+                    ts.tag if ts.tag is not None else "",
+                    id(ts),
+                )
+            )
+        return keys(self) < keys(other)
+
     @property
     def fullname(self):
         attrs = []
