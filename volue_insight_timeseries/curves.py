@@ -87,13 +87,21 @@ class BaseCurve:
             return msg.format(f", time_zone={self.time_zone}, hasAccess={self.hasAccess}")
         return msg.format("")
 
-    def _add_from_to(self, args, first, last, prefix=''):
+    def _add_from_to(self, args:list[str], first:util.DatetimeLike|None, last:util.DatetimeLike|None, prefix:str='')->None:
         if first is not None:
             args.append(util.make_arg('{}from'.format(prefix), first))
         if last is not None:
             args.append(util.make_arg('{}to'.format(prefix), last))
 
-    def _add_functions(self, args, time_zone, filter, function, frequency, output_time_zone):
+    def _add_functions(
+        self,
+        args: list[str],
+        time_zone: str | None,
+        filter: filterType | None,
+        function: functionType | None,
+        frequency: util._TsFreqs | None,
+        output_time_zone: str | None,
+    ) -> None:
         if time_zone is not None:
             args.append(util.make_arg('time_zone', time_zone))
         if filter is not None:
@@ -205,7 +213,7 @@ class TimeSeriesCurve(BaseCurve):
         :class:`volue_insight_timeseries.util.TS` object
         """
 
-        args = []
+        args:list[str] = []
         astr = ''
         self._add_from_to(args, data_from, data_to)
         self._add_functions(args, time_zone, filter, function, frequency, output_time_zone)
@@ -219,7 +227,7 @@ class TimeSeriesCurve(BaseCurve):
 
 
 class TaggedCurve(BaseCurve):
-    def get_tags(self):
+    def get_tags(self)->dict|None:
         """ Get list of available tags for this curve
 
         Returns
