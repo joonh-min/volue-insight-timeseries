@@ -1,9 +1,34 @@
+from __future__ import annotations
+
 import warnings
+from dataclasses import dataclass
+from typing import Literal, Optional, Union
 
 from . import util
 
 
+@dataclass
 class BaseCurve:
+    id: int
+    name: str
+    frequency: str
+    time_zone: str
+    curve_type: Literal["TIME_SERIES", "TAGGED", "INSTANCES", "TAGGED_INSTANCES"]
+    curve_state: str
+    create: str
+    modified: str
+    issue_frequency: Optional[str]
+    area: str
+    categories: list[str]
+    commodity: str
+    unit: str
+    station: Optional[str]
+    sources: Optional[str]
+    hasAccess: bool
+    accessRange: dict[Literal["begin", "end", "empty"], str|None]
+    data_type: str
+    description: str
+
     def __init__(self, id, metadata, session):
         self._metadata = metadata
         self._session = session
@@ -1410,3 +1435,6 @@ class TaggedInstanceCurve(BaseCurve):
         if result is None:
             return result
         return util.TS(input_dict=result, curve_type=util.TAGGED_INSTANCES)
+
+curveType = Union[TaggedCurve,InstanceCurve,TaggedInstanceCurve,TimeSeriesCurve]
+
