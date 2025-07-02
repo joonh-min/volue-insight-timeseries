@@ -10,36 +10,7 @@ from urllib.parse import urljoin
 import requests
 
 from . import auth, curves, events, util
-from .util import CurveException
-
-try:
-    from typing import NotRequired
-except ImportError:
-    from typing_extensions import NotRequired
-
-
-_TsFreqs = Literal["Y", "S", "Q", "M", "W", "H12", "H6", "H3", "H", "MIN30", "MIN15", "MIN5", "MIN", "D"]
-
-class Metadata(TypedDict):
-    id: int
-    name: str
-    frequency: _TsFreqs
-    timezone: str
-    curve_type: Literal["TAGGED_INSTANCES", "INSTANCES", "TAGGED", "TIME_SERIES"]
-    curve_state: Literal["PUBLIC"] | str
-    created: str
-    modified: str
-    issue_frequency: NotRequired[str]
-    area: str
-    categories: list[str]
-    commodity: str
-    unit: str
-    station: NotRequired[str]
-    sources: NotRequired[str]
-    hasAccess: bool
-    accessRange: dict[Literal["begin", "end", "empty"], str|None]
-    data_type: str
-    description: str
+from .util import CurveException, _TsFreqs
 
 RETRY_COUNT = 4    # Number of times to retry
 RETRY_DELAY = 0.5  # Delay between retried calls, in seconds.
@@ -462,7 +433,7 @@ class Session:
 
     _meta_keys = ('id', 'name', 'frequency', 'time_zone', 'curve_type')
 
-    def _build_curve(self, metadata:Metadata)->curves.curveType:
+    def _build_curve(self, metadata:curves.Metadata)->curves.curveType:
         for key in self._meta_keys:
             if key not in metadata:
                 raise MetadataException('Mandatory key {} not found in metadata'.format(key))
@@ -561,7 +532,7 @@ class Session:
         if not response.ok:
             raise MetadataException('Failed to load curve: {}'
                                     .format(response.content.decode())) from None
-        metadata:Metadata = response.json()
+        metadata:curves.Metadata = response.json()
         return self._build_curve(metadata)
 
     def handle_multi_curve_response(self, response:requests.Response|None)-> list[curves.curveType]:
@@ -570,6 +541,6 @@ class Session:
         if not response.ok:
             raise MetadataException('Curve search failed: {}'
                                     .format(response.content.decode())) from None
-        metadata_list:list[Metadata] = response.json()
+        metadata_list:list[curves.Metadata] = response.json()
 
         return [self._build_curve(metadata) for metadata in metadata_list]

@@ -2,10 +2,38 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass
-from typing import Literal, Optional, Union
+from typing import Literal, Optional, Union, TypedDict, TYPE_CHECKING
 
 from . import util
 
+try:
+    from typing import NotRequired
+except ImportError:
+    from typing_extensions import NotRequired
+
+if TYPE_CHECKING:
+    from .session import Session
+
+class Metadata(TypedDict):
+    id: int
+    name: str
+    frequency: util._TsFreqs
+    timezone: str
+    curve_type: Literal["TAGGED_INSTANCES", "INSTANCES", "TAGGED", "TIME_SERIES"]
+    curve_state: Literal["PUBLIC"] | str
+    created: str
+    modified: str
+    issue_frequency: NotRequired[str]
+    area: str
+    categories: list[str]
+    commodity: str
+    unit: str
+    station: NotRequired[str]
+    sources: NotRequired[str]
+    hasAccess: bool
+    accessRange: dict[Literal["begin", "end", "empty"], str|None]
+    data_type: str
+    description: str
 
 @dataclass
 class BaseCurve:
@@ -13,7 +41,7 @@ class BaseCurve:
     name: str
     frequency: str
     time_zone: str
-    curve_type: Literal["TIME_SERIES", "TAGGED", "INSTANCES", "TAGGED_INSTANCES"]
+    curve_type: Literal["TIME_SERIES", "TAGGED", "INSTANCES", "TAGGED_INSTANCES", "UNKNOWN"]
     curve_state: str
     create: str
     modified: str
@@ -29,7 +57,7 @@ class BaseCurve:
     data_type: str
     description: str
 
-    def __init__(self, id, metadata, session):
+    def __init__(self, id, metadata:Metadata|None, session:Session):
         self._metadata = metadata
         self._session = session
         self.time_zone = 'CET'
@@ -41,17 +69,20 @@ class BaseCurve:
                 setattr(self, key, val)
         self.id = id
         self.tz = util.parse_tz(self.time_zone)
+        self.curve_type = getattr(self, 'curve_type', 'UNKNOWN')
 
-    def __str__(self):
-        if hasattr(self, 'curve_type'):
-            curve_type = self.curve_type
-        else:
-            curve_type = 'UNKNOWN'
-        if hasattr(self, 'name'):
-            name = self.name
-        else:
-            name = str(self.id)
-        return "{}({})".format(curve_type, name)
+    def __str__(self)->str:
+        name = getattr(self, 'name', str(self.id))
+        return "{}({})".format(self.curve_type, name)
+
+    def __repr__(self)->str:
+        name = getattr(self, 'name', str(self.id))
+        msg = f"{self.curve_type}(name={name}{{}})"
+        if self._metadata is not None:
+            if hasattr(self, "_verbose"):
+                return msg.format(f", {', '.join([f'{k}={v}' for k,v in self._metadata.items() if k != 'name'])}")
+            return msg.format(f", time_zone={self.time_zone}, hasAccess={self.hasAccess}")
+        return msg.format("")
 
     def _add_from_to(self, args, first, last, prefix=''):
         if first is not None:

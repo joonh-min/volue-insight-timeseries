@@ -6,6 +6,7 @@
 import calendar
 import datetime
 import warnings
+from typing import Any, Literal, TypeVar, Union
 from urllib.parse import quote_plus
 
 import dateutil.parser
@@ -20,6 +21,7 @@ TAGGED = "TAGGED"
 INSTANCES = "INSTANCES"
 TAGGED_INSTANCES = "TAGGED_INSTANCES"
 
+_TsFreqs = Literal["Y", "S", "Q", "M", "W", "H12", "H6", "H3", "H", "MIN30", "MIN15", "MIN5", "MIN", "D"]
 
 # Frequency mapping from TS to Pandas
 _TS_FREQ_TABLE = {
@@ -360,13 +362,10 @@ def is_integer(s):
         return False
 
 
-def make_arg(key, value):
+def make_arg(key:str, value:Any):
     if hasattr(value, "__iter__") and not isinstance(value, str):
         return "&".join([make_arg(key, v) for v in value])
 
-    if isinstance(value, datetime.date):
-        tmp = value.isoformat()
-    else:
-        tmp = "{}".format(value)
+    tmp = value.isoformat() if isinstance(value, datetime.date) else str(value)
     v = quote_plus(tmp)
-    return "{}={}".format(key, v)
+    return f"{key}={v}"
