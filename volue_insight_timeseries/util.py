@@ -2,11 +2,12 @@
 # Various utility and conversion functions to make it easier to work with
 # the data from the backend
 #
+from __future__ import annotations
 
 import calendar
 import datetime
 import warnings
-from typing import Any, Literal, TypeVar, Union
+from typing import Any, Literal, TypeVar, TypedDict, Union
 from urllib.parse import quote_plus
 
 import dateutil.parser
@@ -62,6 +63,16 @@ _PANDAS_FREQ_TABLE = {
 for ts_freq, pandas_freq in _TS_FREQ_TABLE.items():
     _PANDAS_FREQ_TABLE[pandas_freq.upper()] = ts_freq
 
+class InputDict(TypedDict):
+    frequency: _TsFreqs
+    time_zone: str
+    id: int
+    name: str
+    issue_date: str
+    created: str
+    modified: str
+    points: list[list[float]]
+
 
 class CurveException(Exception):
     pass
@@ -73,7 +84,16 @@ class TS:
     """
 
     def __init__(
-        self, id=None, name=None, frequency=None, time_zone=None, tag=None, issue_date=None, curve_type=None, points=None, input_dict=None
+        self,
+        id: int|None = None,
+        name:str|None=None,
+        frequency:_TsFreqs|None=None,
+        time_zone:str|None=None,
+        tag:str|None=None,
+        issue_date:str|None=None,
+        curve_type:Literal["TAGGED_INSTANCES", "INSTANCES", "TAGGED", "TIME_SERIES"]|None=None,
+        points:list[list[float]]|None=None,
+        input_dict:InputDict|None=None,
     ):
         self.id = id
         self.name = name
@@ -100,10 +120,8 @@ class TS:
         if self.frequency is None:
             raise CurveException("TS must have frequency")
 
-    def __str__(self):
-        size = ""
-        if self.points:
-            size = " size: {}".format(len(self.points))
+    def __str__(self)->str:
+        size = " size: {}".format(len(self.points)) if self.points else ""
         return "TS: {}{}".format(self.fullname, size)
 
     @property
