@@ -67,7 +67,7 @@ class CurveException(Exception):
     pass
 
 
-class TS(object):
+class TS:
     """
     A class to hold a basic time series.
     """
