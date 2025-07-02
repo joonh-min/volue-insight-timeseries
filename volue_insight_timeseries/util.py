@@ -403,15 +403,6 @@ def detect_curve_type(issue_date:str|None, tag:str|None)->Literal["TIME_SERIES",
         return INSTANCES
     return TAGGED_INSTANCES
 
-
-def is_integer(s):
-    try:
-        int(s)
-        return True
-    except ValueError:
-        return False
-
-
 def make_arg(key:str, value:Any):
     if hasattr(value, "__iter__") and not isinstance(value, str):
         return "&".join([make_arg(key, v) for v in value])
