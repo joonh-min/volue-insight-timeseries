@@ -15,6 +15,8 @@ import pandas as pd
 from zoneinfo import ZoneInfo
 from zoneinfo._common import ZoneInfoNotFoundError
 
+DatetimeLike = Union[str, pd.Timestamp, datetime.datetime, datetime.date]
+
 # Curve types
 TIME_SERIES = "TIME_SERIES"
 TAGGED = "TAGGED"

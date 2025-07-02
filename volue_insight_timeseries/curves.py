@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass
-from typing import Literal, Optional, Union, TypedDict, TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, Optional, TypedDict, Union
 
 from . import util
 
@@ -13,6 +13,9 @@ except ImportError:
 
 if TYPE_CHECKING:
     from .session import Session
+
+filterType = Union[Literal["PEAK", "OFFPEAK", "OFFPEAK1", "OFFPEAK2", "FUTUREPEAK", "FUTUREOFFPEAK", "WORKDAYS", "WEEKENDS"], str]
+functionType = Union[Literal["AVERAGE", "SAVERAGE", "MAX", "MIN", "SUM", "SSUM", "LAST", "SAME", "DIVIDE"], str]
 
 class Metadata(TypedDict):
     id: int
@@ -57,7 +60,7 @@ class BaseCurve:
     data_type: str
     description: str
 
-    def __init__(self, id, metadata:Metadata|None, session:Session):
+    def __init__(self, id:int, metadata:Metadata|None, session:Session):
         self._metadata = metadata
         self._session = session
         self.time_zone = 'CET'
@@ -102,25 +105,36 @@ class BaseCurve:
         if output_time_zone is not None:
             args.append(util.make_arg('output_time_zone', output_time_zone))
 
-    def _load_data(self, url, failmsg, urlbase=None):
-        if urlbase is None:
-            urlbase = self._session.urlbase
+    def _load_data(self, url:str, failmsg:str|None, urlbase:str|None=None)->dict|None:
+        urlbase = self._session.urlbase if urlbase is None else urlbase
         response = self._session.data_request('GET', urlbase, url)
         self._last_response = response
-        if response.status_code == 200:
+        if response is not None and response.status_code == 200:
             return response.json()
-        elif response.status_code == 204 or response.status_code == 404:
+        if response is not None and (response.status_code in {204, 404}):
             return None
-        raise util.CurveException('{}: {} ({})'.format(failmsg, response.content, response.status_code))
+        raise util.CurveException(
+            '{}: {} ({})'.format(
+                failmsg, "None" if response is None else response.content, "None" if response is None else response.status_code
+            )
+        )
 
-    def access(self):
+    def access(self)-> dict|None:
         url = '/api/curves/{}/access'.format(self.id)
         return self._load_data(url, 'Failed to load curve access')
 
 
 class TimeSeriesCurve(BaseCurve):
-    def get_data(self, data_from=None, data_to=None, time_zone=None, filter=None,
-                 function=None, frequency=None, output_time_zone=None):
+    def get_data(
+        self,
+        data_from: util.DatetimeLike | None = None,
+        data_to: util.DatetimeLike | None = None,
+        time_zone: str | None = None,
+        filter: filterType | None = None,
+        function: functionType | None = None,
+        frequency: util._TsFreqs | None = None,
+        output_time_zone: str | None = None,
+    )->util.TS|None:
         """ Getting data from Time Series curves
 
         A Time Series curves holds a single time series.
@@ -1468,4 +1482,3 @@ class TaggedInstanceCurve(BaseCurve):
         return util.TS(input_dict=result, curve_type=util.TAGGED_INSTANCES)
 
 curveType = Union[TaggedCurve,InstanceCurve,TaggedInstanceCurve,TimeSeriesCurve]
-

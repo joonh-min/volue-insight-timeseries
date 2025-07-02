@@ -10,7 +10,7 @@ from urllib.parse import urljoin
 import requests
 
 from . import auth, curves, events, util
-from .util import CurveException, _TsFreqs
+from .util import CurveException, DatetimeLike, _TsFreqs
 
 RETRY_COUNT = 4    # Number of times to retry
 RETRY_DELAY = 0.5  # Delay between retried calls, in seconds.
@@ -159,7 +159,7 @@ class Session:
         frequency:_TsFreqs|list[_TsFreqs]|None=None,
         data_type:str|list[str]|None=None,
         curve_state:str|list[str]|None=None,
-        modified_since=None,
+        modified_since:DatetimeLike|None=None,
         only_accessible:bool=False
     )->list[curves.curveType]:
         """
