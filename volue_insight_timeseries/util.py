@@ -46,7 +46,7 @@ _TS_FREQ_TABLE = {
 
 # Mapping from various versions of Pandas to TS is built from map above,
 # with some additions to support older versions of pandas
-_PANDAS_FREQ_TABLE = {
+_PANDAS_FREQ_TABLE:dict[str,_TsFreqs] = {
     "YS-JAN": "Y",
     "AS-JAN": "Y",
     "AS": "Y",
@@ -162,7 +162,7 @@ class TS:
         return len(self.points)
 
     @property
-    def fullname(self):
+    def fullname(self)->str:
         attrs = []
         if self.name:
             attrs.append(self.name)
@@ -176,7 +176,7 @@ class TS:
             attrs.append(str(self.issue_date))
         return " ".join(attrs)
 
-    def to_pandas(self, name=None):
+    def to_pandas(self, name:str|None=None)->pd.Series[float]:
         """Converting :class:`volue_insight_timeseries.util.TS` object
         to a pandas.Series object
 
@@ -192,7 +192,7 @@ class TS:
         if name is None:
             name = self.fullname
         if self.points is None or len(self.points) == 0:
-            return pd.Series(name=name, dtype="float64")
+            return pd.Series(name=name, dtype="float64", index=pd.DatetimeIndex([], tz=self.tz))
 
         index = []
         values = []
@@ -220,33 +220,34 @@ class TS:
         return mapped_freq
 
     @staticmethod
-    def from_pandas(pd_series):
+    def from_pandas(pd_series:pd.Series[float])->TS:
         # Clean up some of the more common Pandas/api problems
-        pd_series = pd_series.astype(np.float64)
-        pd_series.replace({np.nan: None}, inplace=True)
+        pd_series = pd_series.astype(np.float64).replace({np.nan: None})
+
+        if not isinstance(pd_series.index, pd.DatetimeIndex):
+            raise ValueError("Input series index must be a DatetimeIndex")
 
         name = pd_series.name
         frequency = TS._rev_map_freq(pd_series.index.freqstr)
 
         points = []
         for i in pd_series.index:
-            t = i.astimezone("UTC")
+            t = i.astimezone(ZoneInfo("UTC"))
             timestamp = int(calendar.timegm(t.timetuple()) * 1000)
             points.append([timestamp, pd_series[i]])
 
-        if is_integer(name):
+        if name is not None and isinstance(name, str) and name.isnumeric():
             return TS(id=int(name), frequency=frequency, points=points)
-        else:
-            return TS(name=name, frequency=frequency, points=points)
+        return TS(name=name, frequency=frequency, points=points)
 
     @staticmethod
-    def _map_freq(frequency):
+    def _map_freq(frequency: _TsFreqs|str) -> str:
         if frequency.upper() in _TS_FREQ_TABLE:
             frequency = _TS_FREQ_TABLE[frequency.upper()]
         return frequency
 
     @staticmethod
-    def _rev_map_freq(frequency):
+    def _rev_map_freq(frequency:str)->_TsFreqs:
         if frequency.upper() in _PANDAS_FREQ_TABLE:
             frequency = _PANDAS_FREQ_TABLE[frequency.upper()]
         else:
@@ -254,7 +255,7 @@ class TS:
         return frequency
 
     @staticmethod
-    def sum(ts_list, name):
+    def sum(ts_list:list[TS], name:str)->TS:
         """calculate the sum of a given list
         of :class:`volue_insight_timeseries.util.TS` objects
 
@@ -276,7 +277,7 @@ class TS:
         return _generated_series_to_TS(df.sum(axis=1), name)
 
     @staticmethod
-    def mean(ts_list, name):
+    def mean(ts_list:list[TS], name:str)->TS:
         """calculate the mean of a given list of TS objects
 
         Returns a TS (:class:`volue_insight_timeseries.util.TS`) object that is
@@ -296,7 +297,7 @@ class TS:
         return _generated_series_to_TS(df.mean(axis=1), name)
 
     @staticmethod
-    def median(ts_list, name):
+    def median(ts_list:list[TS], name:str)->TS:
         """calculate the median of a given list of TS objects
 
         Returns a TS (:class:`volue_insight_timeseries.util.TS`) object that is
@@ -316,20 +317,16 @@ class TS:
         return _generated_series_to_TS(df.median(axis=1), name)
 
 
-def _generated_series_to_TS(series, name):
+def _generated_series_to_TS(series:pd.Series[float], name:str)->TS:
     series.name = name
     return TS.from_pandas(series)
 
 
-def _ts_list_to_dataframe(ts_list):
-    pd_list = []
-    for ts in ts_list:
-        pd_list.append(ts.to_pandas())
-
-    return pd.concat(pd_list, axis=1)
+def _ts_list_to_dataframe(ts_list:list[TS])->pd.DataFrame:
+    return pd.concat([ts.to_pandas() for ts in ts_list], axis=1)
 
 
-def tags_to_DF(tagged_list):
+def tags_to_DF(tagged_list:list[TS])->pd.DataFrame:
     """
     Given a list of tagged series/instances, create a DataFrame with the tag of
     each as column name
@@ -342,7 +339,7 @@ def tags_to_DF(tagged_list):
 #
 
 
-def parsetime(datestr, tz=None):
+def parsetime(datestr:str, tz:str|datetime.tzinfo|None=None)->datetime.datetime:
     """
     Parse the input date and optionally convert to correct time zone
     """
@@ -353,15 +350,11 @@ def parsetime(datestr, tz=None):
         if not isinstance(tz, datetime.tzinfo):
             tz = parse_tz(tz)
 
-        if d.tzinfo is not None:
-            d = d.astimezone(tz)
-        else:
-            d = d.replace(tzinfo=tz)
+        d = d.astimezone(tz) if d.tzinfo is not None else d.replace(tzinfo=tz)
 
-    else:
-        # If datestr does not have tzinfo and no tz given, assume CET
-        if d.tzinfo is None:
-            d = d.replace(tzinfo=ZoneInfo("CET"))
+    # If datestr does not have tzinfo and no tz given, assume CET
+    elif d.tzinfo is None:
+        d = d.replace(tzinfo=ZoneInfo("CET"))
     return d
 
 
@@ -391,24 +384,24 @@ _tzmap = {
 }
 
 
-def parse_tz(time_zone):
+def parse_tz(time_zone:str):
     try:
         if time_zone in _tzmap:
             time_zone = _tzmap[time_zone]
         return ZoneInfo(time_zone)
     except ZoneInfoNotFoundError:
+        warnings.warn(f"ZoneInfo `{time_zone}` is invalid, setting timezone to `CET`.", Warning, 2)
         return ZoneInfo("CET")
 
 
-def detect_curve_type(issue_date, tag):
+def detect_curve_type(issue_date:str|None, tag:str|None)->Literal["TIME_SERIES", "TAGGED", "INSTANCES", "TAGGED_INSTANCES"]:
     if issue_date is None and tag is None:
         return TIME_SERIES
-    elif issue_date is None:
+    if issue_date is None:
         return TAGGED
-    elif tag is None:
+    if tag is None:
         return INSTANCES
-    else:
-        return TAGGED_INSTANCES
+    return TAGGED_INSTANCES
 
 
 def is_integer(s):
