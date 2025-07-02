@@ -153,6 +153,14 @@ class TS:
             )
         return keys(self) < keys(other)
 
+    def __len__(self) -> int:
+        """
+        Returns the number of points in the time series.
+        """
+        if self.points is None:
+            return 0
+        return len(self.points)
+
     @property
     def fullname(self):
         attrs = []
