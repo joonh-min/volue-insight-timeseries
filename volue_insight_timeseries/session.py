@@ -61,9 +61,16 @@ class Session:
 
     """
 
-    def __init__(self, urlbase:str|None=None, config_file:str|RawConfigParser|None=None,
-                 client_id:str|None=None, client_secret:str|None=None,
-                 auth_urlbase:str|None=None, timeout:float|None=None, retry_update_auth:bool=False):
+    def __init__(
+        self,
+        urlbase: str | None = None,
+        config_file: str | RawConfigParser | None = None,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+        auth_urlbase: str | None = None,
+        timeout: float | None = None,
+        retry_update_auth: bool = False,
+    )->None:
         self.urlbase:str = urlbase if urlbase is not None else API_URLBASE
         self.auth:auth.OAuth | None = None
         self.timeout:float = timeout if timeout is not None else TIMEOUT
@@ -76,7 +83,7 @@ class Session:
         if timeout is not None:
             self.timeout = timeout
 
-    def read_config_file(self, config_file:str|RawConfigParser):
+    def read_config_file(self, config_file:str|RawConfigParser)->None:
         """Set up according to configuration file with hosts and access details"""
         if self.auth is not None:
             raise ConfigException('Session configuration is already done')
@@ -102,7 +109,7 @@ class Session:
         if timeout is not None:
             self.timeout = float(timeout)
 
-    def configure(self, client_id:str, client_secret:str, auth_urlbase:str|None=None):
+    def configure(self, client_id:str, client_secret:str, auth_urlbase:str|None=None)->None:
         """Programmatically set authentication parameters"""
         if self.auth is not None:
             raise ConfigException('Session configuration is already done')

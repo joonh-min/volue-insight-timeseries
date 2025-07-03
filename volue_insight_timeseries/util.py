@@ -7,7 +7,7 @@ from __future__ import annotations
 import calendar
 import datetime
 import warnings
-from typing import Any, Literal, TypeVar, TypedDict, Union
+from typing import Any, Literal, TypedDict, TypeVar, Union
 from urllib.parse import quote_plus
 
 import dateutil.parser
@@ -94,7 +94,7 @@ class TS:
         curve_type:Literal["TAGGED_INSTANCES", "INSTANCES", "TAGGED", "TIME_SERIES"]|None=None,
         points:list[list[float]]|None=None,
         input_dict:InputDict|None=None,
-    ):
+    )->None:
         self.id = id
         self.name = name
         self.frequency = frequency
@@ -124,7 +124,7 @@ class TS:
         size = " size: {}".format(len(self.points)) if self.points else ""
         return "TS: {}{}".format(self.fullname, size)
 
-    def __repr__(self) -> str:
+    def __repr__(self)->str:
         name = self.name if self.name is not None else str(self.id)
         attrs = [
             f"id={self.id}" if self.id is not None else "",
@@ -135,7 +135,7 @@ class TS:
         attrs_str = ", ".join(filter(None, attrs))
         return f"TS(name={name}{', ' + attrs_str if attrs_str else ''})"
 
-    def __lt__(self, other: TS) -> bool:
+    def __lt__(self, other: TS)->bool:
         """
         Compare two TS objects for sorting.
 
@@ -153,7 +153,7 @@ class TS:
             )
         return keys(self) < keys(other)
 
-    def __len__(self) -> int:
+    def __len__(self)->int:
         """
         Returns the number of points in the time series.
         """
@@ -241,7 +241,7 @@ class TS:
         return TS(name=name, frequency=frequency, points=points)
 
     @staticmethod
-    def _map_freq(frequency: _TsFreqs|str) -> str:
+    def _map_freq(frequency:_TsFreqs|str) -> str:
         if frequency.upper() in _TS_FREQ_TABLE:
             frequency = _TS_FREQ_TABLE[frequency.upper()]
         return frequency
@@ -358,7 +358,7 @@ def parsetime(datestr:str, tz:str|datetime.tzinfo|None=None)->datetime.datetime:
     return d
 
 
-def parserange(rangeobj, tz=None):
+def parserange(rangeobj, tz=None)->tuple[datetime.datetime|None, datetime.datetime|None]|None:
     """
     Parse a range object (a pair of date strings, which may each be None)
     """
@@ -384,7 +384,7 @@ _tzmap = {
 }
 
 
-def parse_tz(time_zone:str):
+def parse_tz(time_zone:str)->ZoneInfo:
     try:
         if time_zone in _tzmap:
             time_zone = _tzmap[time_zone]
@@ -403,7 +403,7 @@ def detect_curve_type(issue_date:str|None, tag:str|None)->Literal["TIME_SERIES",
         return INSTANCES
     return TAGGED_INSTANCES
 
-def make_arg(key:str, value:Any):
+def make_arg(key:str, value:Any)->str:
     if hasattr(value, "__iter__") and not isinstance(value, str):
         return "&".join([make_arg(key, v) for v in value])
 

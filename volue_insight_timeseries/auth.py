@@ -38,7 +38,7 @@ class OAuth:
             if (not self.valid_until) or time.time() > self.valid_until:
                 self._authenticate()
 
-    def _authenticate(self):
+    def _authenticate(self)->None:
         # Wipe out any old values before (re-)login
         self.token = None
         self.token_type = None

@@ -60,7 +60,7 @@ class BaseCurve:
     data_type: str
     description: str
 
-    def __init__(self, id:int, metadata:Metadata|None, session:Session):
+    def __init__(self, id:int, metadata:Metadata|None, session:Session)->None:
         self._metadata = metadata
         self._session = session
         self.time_zone = 'CET'
