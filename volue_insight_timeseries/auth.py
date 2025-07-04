@@ -2,13 +2,16 @@
 # Authentication support
 #
 
+from __future__ import annotations
+
 import json
 import threading
 import time
-from typing import Union
+from typing import TYPE_CHECKING
 from urllib.parse import urljoin
 
-from .session import Session
+if TYPE_CHECKING:
+    from .session import Session
 
 
 class AuthFailedException(Exception):
@@ -25,9 +28,9 @@ class OAuth:
         self.client_id = client_id
         self.client_secret = client_secret
         self.auth_urlbase = auth_urlbase
-        self.token:Union[str,None] = None
-        self.token_type:Union[str,None] = None
-        self.valid_until:Union[float,None] = None
+        self.token:str|None = None
+        self.token_type:str|None = None
+        self.valid_until:float|None = None
         self.session = session
         self._authenticate()
 
