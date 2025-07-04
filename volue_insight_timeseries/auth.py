@@ -6,6 +6,12 @@ from __future__ import annotations
 
 import json
 import threading
+import os
+
+try:
+    from urllib.parse import urljoin
+except ImportError:
+    from urlparse import urljoin
 import time
 from typing import TYPE_CHECKING
 from urllib.parse import urljoin
@@ -63,6 +69,12 @@ class OAuth:
 
     def get_headers(self)->dict[str,str]:
         """The web-token auth header is simple"""
+        headers = {}
         if self.token is not None and self.token_type is not None:
-            return {'Authorization': f'{self.token_type} {self.token}'}
-        return {}
+            headers['Authorization'] = '{} {}'.format(self.token_type, self.token)
+
+        wapi_request_source = os.getenv('WAPI_REQUEST_SOURCE')
+        if wapi_request_source:
+            headers['X-Request-Source'] = wapi_request_source
+
+        return headers
