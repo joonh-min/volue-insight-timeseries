@@ -8,6 +8,7 @@ from typing import Any, Literal, TypedDict, TypeVar, Union, overload
 from urllib.parse import urljoin
 
 import requests
+import configparser
 
 from . import auth, curves, events, util
 from .util import CurveException, DatetimeLike, _TsFreqs
@@ -470,6 +471,12 @@ class Session:
 
         if data is not None or rawdata is not None:
             headers['content-type'] = 'application/json'
+            if isinstance(data, str):
+                databytes = data.encode()
+            else:
+                databytes = json.dumps(data).encode()
+        if data is None and rawdata is not None:
+            databytes = rawdata
         if self.auth is not None:
             # Beta-feature: Only update auth with retry if explicitly requested
             if self.retry_update_auth:
@@ -499,7 +506,10 @@ class Session:
 
         databytes = None
         if data is not None:
-            databytes = data.encode() if isinstance(data, str) else json.dumps(data).encode()
+            if isinstance(data, str):
+                databytes = data.encode()
+            else:
+                databytes = json.dumps(data).encode()
         if data is None and rawdata is not None:
             databytes = rawdata
         timeout = None
