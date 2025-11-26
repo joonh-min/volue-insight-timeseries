@@ -4,11 +4,12 @@ import json
 import time
 import warnings
 from configparser import RawConfigParser
-from typing import Any, Literal, TypedDict, TypeVar, Union, overload
+from typing import Any, Literal
 from urllib.parse import urljoin
 
 import requests
-import configparser
+
+from volue_insight_timeseries.session_async import Asession
 
 from . import auth, curves, events, util
 from .util import CurveException, DatetimeLike, _TsFreqs
@@ -95,8 +96,8 @@ class Session:
         else:
             files_read = config.read(config_file)
             if not files_read:
-                raise ConfigException('Configuration file with name {} '
-                                      'was not found.'.format(config_file))
+                raise ConfigException(f'Configuration file with name {config_file} '
+                                      'was not found.')
         urlbase = config.get('common', 'urlbase', fallback=None)
         if urlbase is not None:
             self.urlbase = urlbase
@@ -147,7 +148,7 @@ class Session:
             raise MetadataException('No curve specified')
 
         arg = util.make_arg('id', id) if id is not None else util.make_arg('name', name)
-        response = self.data_request('GET', self.urlbase, '/api/curves/get?{}'.format(arg))
+        response = self.data_request('GET', self.urlbase, f'/api/curves/get?{arg}')
         return self.handle_single_curve_response(response)
 
     def search(
@@ -310,7 +311,7 @@ class Session:
         if args:
             astr = "?{}".format("&".join(args))
         # Now run the search, and try to produce a list of curves
-        response = self.data_request('GET', self.urlbase, '/api/curves{}'.format(astr))
+        response = self.data_request('GET', self.urlbase, f'/api/curves{astr}')
         return self.handle_multi_curve_response(response)
 
     def make_curve(self, id:int, curve_type:Literal["TIME_SERIES", "TAGGED", "INSTANCES", "TAGGED_INSTANCES"])->curves.curveType:
@@ -421,16 +422,15 @@ class Session:
     def get_attribute(self, attribute:str)->requests.Response|None:
         """Get valid values for an attribute."""
         if attribute not in self._attributes:
-            raise MetadataException('Attribute {} is not valid'.format(attribute))
-        response = self.data_request('GET', self.urlbase, '/api/{}'.format(attribute))
+            raise MetadataException(f'Attribute {attribute} is not valid')
+        response = self.data_request('GET', self.urlbase, f'/api/{attribute}')
         if response is None:
             return response
         if response.status_code == 200:
             return response.json()
         if response.status_code == 204:
             return None
-        raise MetadataException('Failed loading {}: {}'.format(attribute,
-                                                               response.content.decode()))
+        raise MetadataException(f'Failed loading {attribute}: {response.content.decode()}')
 
     _curve_types = {
         util.TIME_SERIES:      curves.TimeSeriesCurve,
@@ -444,7 +444,7 @@ class Session:
     def _build_curve(self, metadata:curves.Metadata)->curves.curveType:
         for key in self._meta_keys:
             if key not in metadata:
-                raise MetadataException('Mandatory key {} not found in metadata'.format(key))
+                raise MetadataException(f'Mandatory key {key} not found in metadata')
         curve_id = int(metadata['id'])
         if('curve_state' in metadata and metadata['curve_state'] == 'DEPRECATED'):
             warnings.warn("Deprecation warning for curve: {}".format(metadata['name']), DeprecationWarning, stacklevel=4)
@@ -471,10 +471,7 @@ class Session:
 
         if data is not None or rawdata is not None:
             headers['content-type'] = 'application/json'
-            if isinstance(data, str):
-                databytes = data.encode()
-            else:
-                databytes = json.dumps(data).encode()
+            databytes = data.encode() if isinstance(data, str) else json.dumps(data).encode()
         if data is None and rawdata is not None:
             databytes = rawdata
         if self.auth is not None:
@@ -506,10 +503,7 @@ class Session:
 
         databytes = None
         if data is not None:
-            if isinstance(data, str):
-                databytes = data.encode()
-            else:
-                databytes = json.dumps(data).encode()
+            databytes = data.encode() if isinstance(data, str) else json.dumps(data).encode()
         if data is None and rawdata is not None:
             databytes = rawdata
         timeout = None
@@ -549,8 +543,7 @@ class Session:
         if response is None:
             raise MetadataException('Failed to load curve: No response received') from None
         if not response.ok:
-            raise MetadataException('Failed to load curve: {}'
-                                    .format(response.content.decode())) from None
+            raise MetadataException(f'Failed to load curve: {response.content.decode()}') from None
         metadata:curves.Metadata = response.json()
         return self._build_curve(metadata)
 
@@ -558,8 +551,7 @@ class Session:
         if response is None:
             raise MetadataException('Curve search failed: No response received') from None
         if not response.ok:
-            raise MetadataException('Curve search failed: {}'
-                                    .format(response.content.decode())) from None
+            raise MetadataException(f'Curve search failed: {response.content.decode()}') from None
         metadata_list:list[curves.Metadata] = response.json()
 
         return [self._build_curve(metadata) for metadata in metadata_list]
