@@ -13,8 +13,6 @@ from urllib.parse import quote_plus
 import dateutil.parser
 import numpy as np
 import pandas as pd
-import numpy as np
-import warnings
 
 try:
     from urllib.parse import quote_plus
@@ -128,8 +126,8 @@ class TS:
             raise CurveException("TS must have frequency")
 
     def __str__(self)->str:
-        size = " size: {}".format(len(self.points)) if self.points else ""
-        return "TS: {}{}".format(self.fullname, size)
+        size = f" size: {len(self.points)}" if self.points else ""
+        return f"TS: {self.fullname}{size}"
 
     def __repr__(self)->str:
         name = self.name if self.name is not None else str(self.id)
