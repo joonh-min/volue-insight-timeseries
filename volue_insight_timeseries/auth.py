@@ -5,8 +5,8 @@
 from __future__ import annotations
 
 import json
-import threading
 import os
+import threading
 
 try:
     from urllib.parse import urljoin
@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import urljoin
 
 if TYPE_CHECKING:
-    from .session import Session
+    from .session import Asession, Session
 
 
 class AuthFailedException(Exception):
@@ -30,7 +30,7 @@ class OAuth:
     This is the main authentication mechanism for customer access to the data center.
     """
 
-    def __init__(self, session:Session, client_id:str, client_secret:str, auth_urlbase:str)->None:
+    def __init__(self, session:Session|Asession, client_id:str, client_secret:str, auth_urlbase:str)->None:
         self.client_id = client_id
         self.client_secret = client_secret
         self.auth_urlbase = auth_urlbase
@@ -38,12 +38,12 @@ class OAuth:
         self.token_type:str|None = None
         self.valid_until:float|None = None
         self.session = session
+        self._lock = threading.Lock()
         self._authenticate()
-
     def validate_auth(self)->None:
         """Check valid_until and fetch new token if needed"""
         # To avoid sending duplicated authentication requests in other threads
-        with threading.Lock():
+        with self._lock:
             if (not self.valid_until) or time.time() > self.valid_until:
                 self._authenticate()
 
@@ -60,7 +60,7 @@ class OAuth:
         if response is None:
             raise AuthFailedException('Authentication failed: No response received')
         if response.status_code != 200:
-            raise AuthFailedException('Authentication failed: {}'.format(response.content))
+            raise AuthFailedException(f'Authentication failed: {response.content}')
         # Parse token
         rsp = json.loads(response.content.decode())
         self.token = rsp['access_token']
@@ -71,7 +71,7 @@ class OAuth:
         """The web-token auth header is simple"""
         headers = {}
         if self.token is not None and self.token_type is not None:
-            headers['Authorization'] = '{} {}'.format(self.token_type, self.token)
+            headers['Authorization'] = f'{self.token_type} {self.token}'
 
         wapi_request_source = os.getenv('WAPI_REQUEST_SOURCE')
         if wapi_request_source:

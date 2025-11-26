@@ -1,21 +1,20 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-from pydoc import cli
 import time
-from types import TracebackType
 import warnings
 from configparser import RawConfigParser
 from typing import Any, Literal
 from urllib.parse import urljoin
 
 import aiohttp
+import aiohttp.web_exceptions
 import requests
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
-from volue_insight_timeseries.session_async import Asession
-
-from . import auth, curves, events, util
+from . import auth, curves_async, events, util
 from .util import CurveException, DatetimeLike, _TsFreqs
 
 RETRY_COUNT = 4    # Number of times to retry
@@ -33,7 +32,7 @@ class MetadataException(Exception):
     pass
 
 
-class Session:
+class Asession:
     """ Establish a connection to Wattsight API
 
     Creates an object that holds the state which is needed when talking to the
@@ -81,16 +80,14 @@ class Session:
         self.auth:auth.OAuth | None = None
         self.timeout:float = timeout if timeout is not None else TIMEOUT
         self._session = requests.Session()
+        self._asession: aiohttp.ClientSession | None = None
         self.retry_update_auth = retry_update_auth
-        self._asession:aiohttp.ClientSession | None = None
         if config_file is not None:
             self.read_config_file(config_file)
         elif client_id is not None and client_secret is not None:
             self.configure(client_id, client_secret, auth_urlbase)
         if timeout is not None:
             self.timeout = timeout
-
-        self._async_client = Asession(urlbase, config_file, client_id, client_secret, auth_urlbase, timeout, retry_update_auth)
 
     def read_config_file(self, config_file:str|RawConfigParser)->None:
         """Set up according to configuration file with hosts and access details"""
@@ -125,7 +122,7 @@ class Session:
         auth_urlbase = auth_urlbase if auth_urlbase is not None else AUTH_URLBASE
         self.auth = auth.OAuth(self, client_id, client_secret, auth_urlbase)
 
-    def get_curve(self, id:int|None=None, name:str|None=None) -> curves.curveType:
+    async def get_curve(self, id:int|None=None, name:str|None=None) -> curves_async.curveType:
         """Getting a curve object
 
         Return a curve object of the correct type.  Name should be specified.
@@ -144,10 +141,10 @@ class Session:
         -------
         curve object
             Curve objects, can be one of:
-            :class:`~volue_insight_timeseries.curves.TimeSeriesCurve`,
-            :class:`~volue_insight_timeseries.curves.TaggedCurve`,
-            :class:`~volue_insight_timeseries.curves.InstanceCurve`,
-            :class:`~volue_insight_timeseries.curves.TaggedInstanceCurve`.
+            :class:`~volue_insight_timeseries.curves_async.TimeSeriesCurve`,
+            :class:`~volue_insight_timeseries.curves_async.TaggedCurve`,
+            :class:`~volue_insight_timeseries.curves_async.InstanceCurve`,
+            :class:`~volue_insight_timeseries.curves_async.TaggedInstanceCurve`.
         """
         if id is not None:
             warnings.warn("Looking up a curve by ID will be removed in the future.", FutureWarning, stacklevel=2)
@@ -155,10 +152,10 @@ class Session:
             raise MetadataException('No curve specified')
 
         arg = util.make_arg('id', id) if id is not None else util.make_arg('name', name)
-        response = self.data_request('GET', self.urlbase, f'/api/curves/get?{arg}')
-        return self.handle_single_curve_response(response)
+        response:curves_async.Metadata = await self.data_request('GET', self.urlbase, f'/api/curves/get?{arg}')
+        return self._build_curve(response)
 
-    def search(
+    async def search(
         self,
         query:str|None=None,
         id:int|list[int]|None=None,
@@ -177,17 +174,17 @@ class Session:
         curve_state:str|list[str]|None=None,
         modified_since:DatetimeLike|None=None,
         only_accessible:bool=False
-    )->list[curves.curveType]:
+    )->list[curves_async.curveType]:
         """
         Search for a curve matching various metadata.
 
         This function searches for curves that matches the given search
         parameters and returns a list of 0 or more curve objects.
         A curve object can be a
-        :class:`~volue_insight_timeseries.curves.TimeSeriesCurve`,
-        :class:`~volue_insight_timeseries.curves.TaggedCurve`,
-        :class:`~volue_insight_timeseries.curves.InstanceCurve` or a
-        :class:`~volue_insight_timeseries.curves.TaggedInstanceCurve` object.
+        :class:`~volue_insight_timeseries.curves_async.TimeSeriesCurve`,
+        :class:`~volue_insight_timeseries.curves_async.TaggedCurve`,
+        :class:`~volue_insight_timeseries.curves_async.InstanceCurve` or a
+        :class:`~volue_insight_timeseries.curves_async.TaggedInstanceCurve` object.
 
         The search will return those curves matching all supplied parameters
         (logical AND). For most parameters, a list of values may be supplied.
@@ -283,10 +280,10 @@ class Session:
         -------
         curves: list
             list of curve objects, can be one of:
-            :class:`~volue_insight_timeseries.curves.TimeSeriesCurve`,
-            :class:`~volue_insight_timeseries.curves.TaggedCurve`,
-            :class:`~volue_insight_timeseries.curves.InstanceCurve`,
-            :class:`~volue_insight_timeseries.curves.TaggedInstanceCurve`.
+            :class:`~volue_insight_timeseries.curves_async.TimeSeriesCurve`,
+            :class:`~volue_insight_timeseries.curves_async.TaggedCurve`,
+            :class:`~volue_insight_timeseries.curves_async.InstanceCurve`,
+            :class:`~volue_insight_timeseries.curves_async.TaggedInstanceCurve`.
         """
         search_terms = {
             'query': query,
@@ -318,10 +315,12 @@ class Session:
         if args:
             astr = "?{}".format("&".join(args))
         # Now run the search, and try to produce a list of curves
-        response = self.data_request('GET', self.urlbase, f'/api/curves{astr}')
-        return self.handle_multi_curve_response(response)
+        response = await self.data_request('GET', self.urlbase, f'/api/curves{astr}')
 
-    def make_curve(self, id:int, curve_type:Literal["TIME_SERIES", "TAGGED", "INSTANCES", "TAGGED_INSTANCES"])->curves.curveType:
+        metadata_list:list[curves_async.Metadata] = [response] if isinstance(response, dict) else response
+        return [self._build_curve(metadata) for metadata in metadata_list]
+
+    def make_curve(self, id:int, curve_type:Literal["TIME_SERIES", "TAGGED", "INSTANCES", "TAGGED_INSTANCES"])->curves_async.curveType:
         """Return a mostly uninitialized curve object of the correct type.
         This is generally a bad idea, use get_curve or search when possible."""
         if curve_type in self._curve_types:
@@ -329,126 +328,122 @@ class Session:
         raise CurveException('Bad curve type requested')
 
     def events(self, curve_list, start_time=None, timeout=None):
-        """Get an event listener for a list of curves."""
+        """Get an event listener for a list of curves_async."""
         return events.EventListener(self, curve_list, start_time=start_time, timeout=timeout)
 
     _attributes = {'commodities', 'categories', 'areas', 'stations', 'sources', 'scenarios',
                    'units', 'time_zones', 'versions', 'frequencies', 'data_types',
                    'curve_states', 'curve_types', 'functions', 'filters'}
 
-    def get_commodities(self)->requests.Response|None:
+    async def get_commodities(self)->list[dict]|dict:
         """
         Get valid values for the commodity attribute
         """
-        return self.get_attribute('commodities')
+        return await self.get_attribute('commodities')
 
-    def get_categories(self)->requests.Response|None:
+    async def get_categories(self)->list[dict]|dict:
         """
         Get valid values for the category attribute
         """
-        return self.get_attribute('categories')
+        return await self.get_attribute('categories')
 
-    def get_areas(self)->requests.Response|None:
+    async def get_areas(self)->list[dict]|dict:
         """
         Get valid values for the area attribute
         """
-        return self.get_attribute('areas')
+        return await self.get_attribute('areas')
 
-    def get_stations(self)->requests.Response|None:
+    async def get_stations(self)->list[dict]|dict:
         """
         Get valid values for the station attribute
         """
-        return self.get_attribute('stations')
+        return await self.get_attribute('stations')
 
-    def get_sources(self)->requests.Response|None:
+    async def get_sources(self)->list[dict]|dict:
         """
         Get valid values for the source attribute
         """
-        return self.get_attribute('sources')
+        return await self.get_attribute('sources')
 
-    def get_scenarios(self)->requests.Response|None:
+    async def get_scenarios(self)->list[dict]|dict:
         """
         Get valid values for the scenarios attribute
         """
-        return self.get_attribute('scenarios')
+        return await self.get_attribute('scenarios')
 
-    def get_units(self)->requests.Response|None:
+    async def get_units(self)->list[dict]|dict:
         """
         Get valid values for the unit attribute
         """
-        return self.get_attribute('units')
+        return await self.get_attribute('units')
 
-    def get_time_zones(self)->requests.Response|None:
+    async def get_time_zones(self)->list[dict]|dict:
         """
         Get valid values for the time zone attribute
         """
-        return self.get_attribute('time_zones')
+        return await self.get_attribute('time_zones')
 
-    def get_versions(self)->requests.Response|None:
+    async def get_versions(self)->list[dict]|dict:
         """
         Get valid values for the version attribute
         """
-        return self.get_attribute('versions')
+        return await self.get_attribute('versions')
 
-    def get_frequencies(self)->requests.Response|None:
+    async def get_frequencies(self)->list[dict]|dict:
         """
         Get valid values for the frequency attribute
         """
-        return self.get_attribute('frequencies')
+        return await self.get_attribute('frequencies')
 
-    def get_data_types(self)->requests.Response|None:
+    async def get_data_types(self)->list[dict]|dict:
         """
         Get valid values for the data_type attribute
         """
-        return self.get_attribute('data_types')
+        return await self.get_attribute('data_types')
 
-    def get_curve_states(self)->requests.Response|None:
+    async def get_curve_states(self)->list[dict]|dict:
         """
         Get valid values for the curve_state attribute
         """
-        return self.get_attribute('curve_states')
+        return await self.get_attribute('curve_states')
 
-    def get_curve_types(self)->requests.Response|None:
+    async def get_curve_types(self)->list[dict]|dict:
         """
         Get valid values for the curve_type attribute
         """
-        return self.get_attribute('curve_types')
+        return await self.get_attribute('curve_types')
 
-    def get_functions(self)->requests.Response|None:
+    async def get_functions(self)->list[dict]|dict:
         """
         Get valid values for the function attribute
         """
-        return self.get_attribute('functions')
+        return await self.get_attribute('functions')
 
-    def get_filters(self)->requests.Response|None:
+    async def get_filters(self)->list[dict]|dict:
         """
         Get valid values for the filter attribute
         """
-        return self.get_attribute('filters')
+        return await self.get_attribute('filters')
 
-    def get_attribute(self, attribute:str)->requests.Response|None:
+    async def get_attribute(self, attribute:str)->dict|list[dict]:
         """Get valid values for an attribute."""
         if attribute not in self._attributes:
             raise MetadataException(f'Attribute {attribute} is not valid')
-        response = self.data_request('GET', self.urlbase, f'/api/{attribute}')
-        if response is None:
-            return response
-        if response.status_code == 200:
-            return response.json()
-        if response.status_code == 204:
-            return None
-        raise MetadataException(f'Failed loading {attribute}: {response.content.decode()}')
+        return await self.data_request('GET', self.urlbase, f'/api/{attribute}')
+        # if not response:
+        #     return response
+        # return response.json()
 
     _curve_types = {
-        util.TIME_SERIES:      curves.TimeSeriesCurve,
-        util.TAGGED:           curves.TaggedCurve,
-        util.INSTANCES:        curves.InstanceCurve,
-        util.TAGGED_INSTANCES: curves.TaggedInstanceCurve,
+        util.TIME_SERIES:      curves_async.TimeSeriesCurve,
+        util.TAGGED:           curves_async.TaggedCurve,
+        util.INSTANCES:        curves_async.InstanceCurve,
+        util.TAGGED_INSTANCES: curves_async.TaggedInstanceCurve,
     }
 
     _meta_keys = ('id', 'name', 'frequency', 'time_zone', 'curve_type')
 
-    def _build_curve(self, metadata:curves.Metadata)->curves.curveType:
+    def _build_curve(self, metadata:curves_async.Metadata)->curves_async.curveType:
         for key in self._meta_keys:
             if key not in metadata:
                 raise MetadataException(f'Mandatory key {key} not found in metadata')
@@ -531,7 +526,12 @@ class Session:
             raise timeout
         return res
 
-    def data_request(
+    @retry(
+        wait=wait_fixed(RETRY_DELAY),
+        stop=stop_after_attempt(RETRY_COUNT),
+        retry=retry_if_exception_type((aiohttp.ClientError, aiohttp.web_exceptions.HTTPRequestTimeout, asyncio.TimeoutError))
+    )
+    async def data_request(
         self,
         req_type: Literal["GET", "POST"],
         urlbase: str,
@@ -540,51 +540,41 @@ class Session:
         rawdata: bytes | None = None,
         authval:tuple[str,str]|None=None,
         stream: bool = False,
-        retries: int = RETRY_COUNT,
-    ) -> requests.Response | None:
+    ) -> dict|list[dict]:
         """Run a call to the backend, dealing with authentication etc."""
         headers = self._validate_auth(data, rawdata)
-        return self.send_data_request(req_type, urlbase, url, data, rawdata, headers, authval, stream, retries)
+        if self._asession is None:
+            raise MetadataException('Async session not initialized')
+        if urlbase is None:
+            urlbase = self.urlbase
+        longurl = urljoin(urlbase, url)
 
-    def handle_single_curve_response(self, response)-> curves.curveType:
-        if response is None:
-            raise MetadataException('Failed to load curve: No response received') from None
-        if not response.ok:
-            raise MetadataException(f'Failed to load curve: {response.content.decode()}') from None
-        metadata:curves.Metadata = response.json()
-        return self._build_curve(metadata)
+        databytes = None
+        if data is not None:
+            databytes = data.encode() if isinstance(data, str) else json.dumps(data).encode()
+        if data is None and rawdata is not None:
+            databytes = rawdata
+        status_code = None
 
-    def handle_multi_curve_response(self, response:requests.Response|None)-> list[curves.curveType]:
-        if response is None:
-            raise MetadataException('Curve search failed: No response received') from None
-        if not response.ok:
-            raise MetadataException(f'Curve search failed: {response.content.decode()}') from None
-        metadata_list:list[curves.Metadata] = response.json()
+        try:
+            async with self._asession.request(
+                method=req_type, url=longurl, data=databytes, headers=headers, auth=aiohttp.BasicAuth(*authval) if authval else None,
+            ) as resp:
+                status_code = resp.status
 
-        return [self._build_curve(metadata) for metadata in metadata_list]
+                if stream:
+                    response_data = bytearray()
+                    async for chunk in resp.content.iter_chunked(1024):
+                        response_data.extend(chunk)
+                    byte_resp = bytes(response_data)
+                    # jsonify the content to mimic requests.Response behavior
+                    response_content = json.loads(byte_resp.decode())
+                else:
+                    response_content = await resp.json()
 
-    async def __aenter__(self)->Asession:
-        """
-        Enter async context, returning an async session object.
+                if status_code == 400:
+                    raise aiohttp.web_exceptions.HTTPBadRequest(reason=response_content["reason"], body=str(response_content))
 
-        :param self: Description
-        :return: Description
-        :rtype: Asession
-        """
-        if self._async_client._asession is None or self._async_client._asession.closed:
-            self._async_client._asession = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout), headers=self._async_client._get_auth_header_with_retry())
-
-        return self._async_client
-
-    async def __aexit__(self, exc_type:type[BaseException]|None, exc_val: BaseException|None, exc_tb: TracebackType|None)->None:
-        """
-        Exit async context, closes session if needed.
-
-        Args:
-            exc_type: Exception type.
-            exc_val: Exception value.
-            exc_tb: Traceback.
-        """
-        logging.info("Closing ASYNC session")
-        if self._async_client._asession is not None and not self._async_client._asession.closed:
-            await self._async_client._asession.close()
+        except Exception as e:
+            raise
+        return response_content

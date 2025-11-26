@@ -10,10 +10,10 @@ except ImportError:
     from typing_extensions import NotRequired
 
 if TYPE_CHECKING:
-    from .session import Session
+    from .session import Asession
 
-filterType = Union[Literal["PEAK", "OFFPEAK", "OFFPEAK1", "OFFPEAK2", "FUTUREPEAK", "FUTUREOFFPEAK", "WORKDAYS", "WEEKENDS"], str]
-functionType = Union[Literal["AVERAGE", "SAVERAGE", "MAX", "MIN", "SUM", "SSUM", "LAST", "SAME", "DIVIDE"], str]
+filterType = Literal["PEAK", "OFFPEAK", "OFFPEAK1", "OFFPEAK2", "FUTUREPEAK", "FUTUREOFFPEAK", "WORKDAYS", "WEEKENDS"]|str
+functionType = Literal["AVERAGE", "SAVERAGE", "MAX", "MIN", "SUM", "SSUM", "LAST", "SAME", "DIVIDE"]|str
 
 class Metadata(TypedDict):
     id: int
@@ -58,7 +58,7 @@ class BaseCurve:
     data_type: str
     description: str
 
-    def __init__(self, id:int, metadata:Metadata|None, session:"Session")->None:
+    def __init__(self, id:int, metadata:Metadata|None, session:"Asession")->None:
         self._metadata = metadata
         self._session = session
         self.time_zone = 'CET'
@@ -74,7 +74,7 @@ class BaseCurve:
 
     def __str__(self)->str:
         name = getattr(self, 'name', str(self.id))
-        return "{}({})".format(self.curve_type, name)
+        return f"{self.curve_type}({name})"
 
     def __repr__(self)->str:
         name = getattr(self, 'name', str(self.id))
@@ -87,9 +87,9 @@ class BaseCurve:
 
     def _add_from_to(self, args:list[str], first:util.DatetimeLike|None, last:util.DatetimeLike|None, prefix:str='')->None:
         if first is not None:
-            args.append(util.make_arg('{}from'.format(prefix), first))
+            args.append(util.make_arg(f'{prefix}from', first))
         if last is not None:
-            args.append(util.make_arg('{}to'.format(prefix), last))
+            args.append(util.make_arg(f'{prefix}to', last))
 
     def _add_functions(
         self,
@@ -111,27 +111,18 @@ class BaseCurve:
         if output_time_zone is not None:
             args.append(util.make_arg('output_time_zone', output_time_zone))
 
-    def _load_data(self, url:str, failmsg:str|None, urlbase:str|None=None)->dict|None:
+    async def _load_data(self, url:str, failmsg:str|None, urlbase:str|None=None)->dict|None:
         urlbase = self._session.urlbase if urlbase is None else urlbase
-        response = self._session.data_request('GET', urlbase, url)
+        response = await self._session.data_request('GET', urlbase, url)
         self._last_response = response
-        if response is not None and response.status_code == 200:
-            return response.json()
-        if response is not None and (response.status_code in {204, 404}):
-            return None
-        raise util.CurveException(
-            '{}: {} ({})'.format(
-                failmsg, "None" if response is None else response.content, "None" if response is None else response.status_code
-            )
-        )
+        return response
 
-    def access(self)-> dict|None:
-        url = '/api/curves/{}/access'.format(self.id)
-        return self._load_data(url, 'Failed to load curve access')
-
+    async def access(self)-> dict|None:
+        url = f'/api/curves/{self.id}/access'
+        return await self._load_data(url, 'Failed to load curve access')
 
 class TimeSeriesCurve(BaseCurve):
-    def get_data(
+    async def get_data(
         self,
         data_from: util.DatetimeLike | None = None,
         data_to: util.DatetimeLike | None = None,
@@ -217,15 +208,15 @@ class TimeSeriesCurve(BaseCurve):
         self._add_functions(args, time_zone, filter, function, frequency, output_time_zone)
         if len(args) > 0:
             astr = '?{}'.format('&'.join(args))
-        url = '/api/series/{}{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to load curve data')
+        url = f'/api/series/{self.id}{astr}'
+        result = await self._load_data(url, 'Failed to load curve data')
         if result is None:
             return result
         return util.TS(input_dict=result, curve_type=util.TIME_SERIES)
 
 
 class TaggedCurve(BaseCurve):
-    def get_tags(self)->dict|None:
+    async def get_tags(self)->dict|None:
         """ Get list of available tags for this curve
 
         Returns
@@ -233,10 +224,10 @@ class TaggedCurve(BaseCurve):
         list
             Returns a list of all available tags for a Tagged Instance curve.
         """
-        url = '/api/series/tagged/{}/tags'.format(self.id)
-        return self._load_data(url, 'Failed to fetch tags')
+        url = f'/api/series/tagged/{self.id}/tags'
+        return await self._load_data(url, 'Failed to fetch tags')
 
-    def get_data(self, tag=None, data_from=None, data_to=None, time_zone=None, filter=None,
+    async def get_data(self, tag=None, data_from=None, data_to=None, time_zone=None, filter=None,
                  function=None, frequency=None, output_time_zone=None):
         """ Getting data from TAGGED curves
 
@@ -328,8 +319,8 @@ class TaggedCurve(BaseCurve):
         self._add_from_to(args, data_from, data_to)
         self._add_functions(args, time_zone, filter, function, frequency, output_time_zone)
         astr = '&'.join(args)
-        url = '/api/series/tagged/{}?{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to load tagged curve data')
+        url = f'/api/series/tagged/{self.id}?{astr}'
+        result = await self._load_data(url, 'Failed to load tagged curve data')
         if result is None:
             return result
         res = [util.TS(input_dict=r, curve_type=util.TAGGED) for r in result]
@@ -339,7 +330,7 @@ class TaggedCurve(BaseCurve):
 
 
 class InstanceCurve(BaseCurve):
-    def search_instances(self, issue_date_from=None, issue_date_to=None,
+    async def search_instances(self, issue_date_from=None, issue_date_to=None,
                          issue_dates=None, issue_weekdays=None, issue_days=None, issue_months=None,
                          issue_times=None, with_data=False, data_from=None, data_to=None,
                          time_zone=None, filter=None, function=None, frequency=None,
@@ -476,13 +467,13 @@ class InstanceCurve(BaseCurve):
         if modified_since is not None:
             args.append(util.make_arg('modified_since', modified_since))
         astr = '&'.join(args)
-        url = '/api/instances/{}?{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to find instances')
+        url = f'/api/instances/{self.id}?{astr}'
+        result = await self._load_data(url, 'Failed to find instances')
         if result is None:
             return result
         return [util.TS(input_dict=r, curve_type=util.INSTANCES) for r in result]
 
-    def get_instance(self, issue_date, with_data=True, data_from=None, data_to=None,
+    async def get_instance(self, issue_date, with_data=True, data_from=None, data_to=None,
                      time_zone=None, filter=None, function=None, frequency=None,
                      output_time_zone=None, only_accessible=None):
         """ Getting data from INSTANCE curves for a specific issue_date
@@ -572,13 +563,13 @@ class InstanceCurve(BaseCurve):
             self._add_from_to(args, data_from, data_to)
             self._add_functions(args, time_zone, filter, function, frequency, output_time_zone)
         astr = '&'.join(args)
-        url = '/api/instances/{}/get?{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to load instance')
+        url = f'/api/instances/{self.id}/get?{astr}'
+        result = await self._load_data(url, 'Failed to load instance')
         if result is None:
             return result
         return util.TS(input_dict=result, issue_date=issue_date, curve_type=util.INSTANCES)
 
-    def get_latest(self, issue_date_from=None, issue_date_to=None, issue_dates=None,
+    async def get_latest(self, issue_date_from=None, issue_date_to=None, issue_dates=None,
                    with_data=True, data_from=None, data_to=None, time_zone=None, filter=None,
                    function=None, frequency=None, output_time_zone=None, only_accessible=None):
         """ Getting data from INSTANCE curves for the latest available issue_date
@@ -683,13 +674,13 @@ class InstanceCurve(BaseCurve):
         if issue_dates is not None:
             args.append(util.make_arg('issue_date', issue_dates))
         astr = '&'.join(args)
-        url = '/api/instances/{}/latest?{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to load instance')
+        url = f'/api/instances/{self.id}/latest?{astr}'
+        result = await self._load_data(url, 'Failed to load instance')
         if result is None:
             return result
         return util.TS(input_dict=result, curve_type=util.INSTANCES)
 
-    def get_relative(self, data_offset, data_max_length=None, issue_date_from=None, issue_date_to=None,
+    async def get_relative(self, data_offset, data_max_length=None, issue_date_from=None, issue_date_to=None,
                      issue_dates=None, issue_weekdays=None, issue_days=None, issue_months=None, issue_times=None,
                      data_from=None, data_to=None, time_zone=None, filter=None, function=None,
                      frequency=None, output_time_zone=None):
@@ -817,13 +808,13 @@ class InstanceCurve(BaseCurve):
         if issue_times is not None:
             args.append(util.make_arg('issue_time', issue_times))
         astr = '&'.join(args)
-        url = '/api/instances/{}/relative?{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to find instances')
+        url = f'/api/instances/{self.id}/relative?{astr}'
+        result = await self._load_data(url, 'Failed to find instances')
         if result is None:
             return result
         return util.TS(input_dict=result, curve_type=util.INSTANCES)
 
-    def get_absolute(self, data_date, issue_frequency=None, issue_date_from=None, issue_date_to=None):
+    async def get_absolute(self, data_date, issue_frequency=None, issue_date_from=None, issue_date_to=None):
         """ Get an absolute forecast from the INSTANCE curve
 
         An absolute forecast is a time series created by selecting a single
@@ -869,15 +860,15 @@ class InstanceCurve(BaseCurve):
             args.append(util.make_arg('issue_frequency', issue_frequency))
         self._add_from_to(args, issue_date_from, issue_date_to, prefix='issue_date_')
         astr = '&'.join(args)
-        url = '/api/instances/{}/absolute?{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to find instances')
+        url = f'/api/instances/{self.id}/absolute?{astr}'
+        result = await self._load_data(url, 'Failed to find instances')
         if result is None:
             return result
         return util.TS(input_dict=result, curve_type=util.INSTANCES)
 
 
 class TaggedInstanceCurve(BaseCurve):
-    def get_tags(self):
+    async def get_tags(self):
         """ Get list of available tags for this curve
 
         Returns
@@ -885,10 +876,10 @@ class TaggedInstanceCurve(BaseCurve):
         list
             Returns a list of all available tags for a Tagged Instance curve.
         """
-        url = '/api/instances/tagged/{}/tags'.format(self.id)
-        return self._load_data(url, 'Failed to fetch tags')
+        url = f'/api/instances/tagged/{self.id}/tags'
+        return await self._load_data(url, 'Failed to fetch tags')
 
-    def search_instances(self, tags=None, issue_date_from=None, issue_date_to=None,
+    async def search_instances(self, tags=None, issue_date_from=None, issue_date_to=None,
                          issue_dates=None, issue_weekdays=None, issue_days=None, issue_months=None,
                          issue_times=None, with_data=False, data_from=None, data_to=None,
                          time_zone=None, filter=None, function=None, frequency=None,
@@ -1037,13 +1028,13 @@ class TaggedInstanceCurve(BaseCurve):
         if modified_since is not None:
             args.append(util.make_arg('modified_since', modified_since))
         astr = '&'.join(args)
-        url = '/api/instances/tagged/{}?{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to find tagged instances')
+        url = f'/api/instances/tagged/{self.id}?{astr}'
+        result = await self._load_data(url, 'Failed to find tagged instances')
         if result is None:
             return result
         return [util.TS(input_dict=r, curve_type=util.TAGGED_INSTANCES) for r in result]
 
-    def get_instance(self, issue_date, tag=None, with_data=True, data_from=None, data_to=None,
+    async def get_instance(self, issue_date, tag=None, with_data=True, data_from=None, data_to=None,
                      time_zone=None, filter=None, function=None, frequency=None,
                      output_time_zone=None, only_accessible=None):
         """ Getting data from TAGGED_INSTANCE curves for a specific issue_date
@@ -1152,8 +1143,9 @@ class TaggedInstanceCurve(BaseCurve):
             self._add_from_to(args, data_from, data_to)
             self._add_functions(args, time_zone, filter, function, frequency, output_time_zone)
         astr = '&'.join(args)
-        url = '/api/instances/tagged/{}/get?{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to load tagged instance')
+        url = f'/api/instances/tagged/{self.id}/get?{astr}'
+        result = await self._load_data(url, 'Failed to load tagged instance')
+
         if result is None:
             return result
         res = [util.TS(input_dict=r, issue_date=issue_date, curve_type=util.TAGGED_INSTANCES) for r in result]
@@ -1161,7 +1153,7 @@ class TaggedInstanceCurve(BaseCurve):
             res = res[0]
         return res
 
-    def get_latest(self, tags=None, issue_date_from=None, issue_date_to=None, issue_dates=None,
+    async def get_latest(self, tags=None, issue_date_from=None, issue_date_to=None, issue_dates=None,
                    with_data=True, data_from=None, data_to=None, time_zone=None, filter=None,
                    function=None, frequency=None, output_time_zone=None, only_accessible=None):
         """ Getting data from TAGGED INSTANCE curves for the latest issue_date
@@ -1284,14 +1276,14 @@ class TaggedInstanceCurve(BaseCurve):
         if issue_dates is not None:
             args.append(util.make_arg('issue_date', issue_dates))
         astr = '&'.join(args)
-        url = '/api/instances/tagged/{}/latest?{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to load tagged instance')
+        url = f'/api/instances/tagged/{self.id}/latest?{astr}'
+        result = await self._load_data(url, 'Failed to load tagged instance')
         if result is None:
             return result
         return util.TS(input_dict=result, curve_type=util.TAGGED_INSTANCES)
 
 
-    def get_relative(self, data_offset, data_max_length=None, tag=None, issue_date_from=None, issue_date_to=None,
+    async def get_relative(self, data_offset, data_max_length=None, tag=None, issue_date_from=None, issue_date_to=None,
                      issue_dates=None, issue_weekdays=None, issue_days=None, issue_months=None, issue_times=None,
                      data_from=None, data_to=None, time_zone=None, filter=None, function=None,
                      frequency=None, output_time_zone=None):
@@ -1424,13 +1416,13 @@ class TaggedInstanceCurve(BaseCurve):
         if issue_times is not None:
             args.append(util.make_arg('issue_time', issue_times))
         astr = '&'.join(args)
-        url = '/api/instances/tagged/{}/relative?{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to find instances')
+        url = f'/api/instances/tagged/{self.id}/relative?{astr}'
+        result = await self._load_data(url, 'Failed to find instances')
         if result is None:
             return result
         return util.TS(input_dict=result, curve_type=util.TAGGED_INSTANCES)
 
-    def get_absolute(self, data_date, issue_frequency=None, tag=None, issue_date_from=None, issue_date_to=None):
+    async def get_absolute(self, data_date, issue_frequency=None, tag=None, issue_date_from=None, issue_date_to=None):
         """ Get an absolute forecast from the INSTANCE curve
 
         An absolute forecast is a time series created by selecting a single
@@ -1481,8 +1473,8 @@ class TaggedInstanceCurve(BaseCurve):
             args.append(util.make_arg('tag', tag))
         self._add_from_to(args, issue_date_from, issue_date_to, prefix='issue_date_')
         astr = '&'.join(args)
-        url = '/api/instances/tagged/{}/absolute?{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to find instances')
+        url = f'/api/instances/tagged/{self.id}/absolute?{astr}'
+        result = await self._load_data(url, 'Failed to find instances')
         if result is None:
             return result
         return util.TS(input_dict=result, curve_type=util.TAGGED_INSTANCES)
