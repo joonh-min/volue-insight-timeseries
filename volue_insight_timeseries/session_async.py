@@ -82,6 +82,7 @@ class Asession:
         self._session = requests.Session()
         self._asession: aiohttp.ClientSession | None = None
         self.retry_update_auth = retry_update_auth
+        self._semaphore = asyncio.Semaphore(10)  # Limit concurrent connections
         if config_file is not None:
             self.read_config_file(config_file)
         elif client_id is not None and client_secret is not None:
@@ -557,7 +558,7 @@ class Asession:
         status_code = None
 
         try:
-            async with self._asession.request(
+            async with self._semaphore, self._asession.request(
                 method=req_type, url=longurl, data=databytes, headers=headers, auth=aiohttp.BasicAuth(*authval) if authval else None,
             ) as resp:
                 status_code = resp.status
