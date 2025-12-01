@@ -1,8 +1,7 @@
-# encoding: utf-8
 #
 import os
-import re
-from setuptools import setup, find_packages
+
+from setuptools import find_packages, setup
 
 here = os.path.abspath(os.path.dirname(__file__))
 
@@ -12,7 +11,7 @@ def extract_requirements(req_file_path: str) -> list[str]:
     """
     req_lst: list[str] = []
 
-    with open(req_file_path, "rt") as req_file:
+    with open(req_file_path) as req_file:
         for line in req_file:
             req = line.strip()
             req = req.split("#")[0].strip()
