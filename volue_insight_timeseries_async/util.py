@@ -105,6 +105,15 @@ InputDict = TSPayload
 class CurveException(Exception):
     pass
 
+
+class ResponseError(Exception):
+    """Raised by Asession.data_request when the response status is not 2xx"""
+
+    def __init__(self, status: int, body: str) -> None:
+        super().__init__(f'HTTP {status}: {body}')
+        self.status = status
+        self.body = body
+
 class MethodNotApplicable(Exception):
     """
     Exception raised when a method is not applicable for a specific curve type.

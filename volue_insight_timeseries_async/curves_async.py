@@ -110,7 +110,13 @@ class BaseCurve:
 
     async def _load_data(self, url:str, failmsg:str|None, urlbase:str|None=None)->JSONValue:
         urlbase = self._session.urlbase if urlbase is None else urlbase
-        response = await self._session.data_request('GET', urlbase, url)
+        try:
+            response = await self._session.data_request('GET', urlbase, url)
+        except util.ResponseError as e:
+            # Same as the sync curves: a missing curve or instance gives None
+            if e.status == 404:
+                return None
+            raise util.CurveException(f'{failmsg}: {e.body} ({e.status})') from e
         self._last_response = response
         return response
 

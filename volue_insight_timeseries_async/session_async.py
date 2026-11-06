@@ -190,7 +190,10 @@ class Asession:
             arg = util.make_arg('name', name)
         else:
             raise MetadataException('No curve specified')
-        response = await self.data_request('GET', self.urlbase, f'/api/v1/timeseries/curves/get?{arg}')
+        try:
+            response = await self.data_request('GET', self.urlbase, f'/api/v1/timeseries/curves/get?{arg}')
+        except util.ResponseError as e:
+            raise MetadataException(f'Failed to load curve: {e.body}') from e
         return self._build_curve(self._check_metadata(response))
 
     async def search(
@@ -353,7 +356,10 @@ class Asession:
         if args:
             astr = "?{}".format("&".join(args))
         # Now run the search, and try to produce a list of curves
-        response = await self.data_request('GET', self.urlbase, f'/api/v1/timeseries/curves{astr}')
+        try:
+            response = await self.data_request('GET', self.urlbase, f'/api/v1/timeseries/curves{astr}')
+        except util.ResponseError as e:
+            raise MetadataException(f'Curve search failed: {e.body}') from e
 
         if isinstance(response, list):
             return [self._build_curve(self._check_metadata(metadata)) for metadata in response]
@@ -395,101 +401,106 @@ class Asession:
                    'units', 'time_zones', 'versions', 'frequencies', 'data_types',
                    'curve_states', 'curve_types', 'functions', 'filters'}
 
-    async def get_commodities(self)->list[AttributeValue]:
+    async def get_commodities(self)->list[AttributeValue] | None:
         """
         Get valid values for the commodity attribute
         """
         return await self.get_attribute('commodities')
 
-    async def get_categories(self)->list[AttributeValue]:
+    async def get_categories(self)->list[AttributeValue] | None:
         """
         Get valid values for the category attribute
         """
         return await self.get_attribute('categories')
 
-    async def get_areas(self)->list[AttributeValue]:
+    async def get_areas(self)->list[AttributeValue] | None:
         """
         Get valid values for the area attribute
         """
         return await self.get_attribute('areas')
 
-    async def get_stations(self)->list[AttributeValue]:
+    async def get_stations(self)->list[AttributeValue] | None:
         """
         Get valid values for the station attribute
         """
         return await self.get_attribute('stations')
 
-    async def get_sources(self)->list[AttributeValue]:
+    async def get_sources(self)->list[AttributeValue] | None:
         """
         Get valid values for the source attribute
         """
         return await self.get_attribute('sources')
 
-    async def get_scenarios(self)->list[AttributeValue]:
+    async def get_scenarios(self)->list[AttributeValue] | None:
         """
         Get valid values for the scenarios attribute
         """
         return await self.get_attribute('scenarios')
 
-    async def get_units(self)->list[AttributeValue]:
+    async def get_units(self)->list[AttributeValue] | None:
         """
         Get valid values for the unit attribute
         """
         return await self.get_attribute('units')
 
-    async def get_time_zones(self)->list[AttributeValue]:
+    async def get_time_zones(self)->list[AttributeValue] | None:
         """
         Get valid values for the time zone attribute
         """
         return await self.get_attribute('time_zones')
 
-    async def get_versions(self)->list[AttributeValue]:
+    async def get_versions(self)->list[AttributeValue] | None:
         """
         Get valid values for the version attribute
         """
         return await self.get_attribute('versions')
 
-    async def get_frequencies(self)->list[AttributeValue]:
+    async def get_frequencies(self)->list[AttributeValue] | None:
         """
         Get valid values for the frequency attribute
         """
         return await self.get_attribute('frequencies')
 
-    async def get_data_types(self)->list[AttributeValue]:
+    async def get_data_types(self)->list[AttributeValue] | None:
         """
         Get valid values for the data_type attribute
         """
         return await self.get_attribute('data_types')
 
-    async def get_curve_states(self)->list[AttributeValue]:
+    async def get_curve_states(self)->list[AttributeValue] | None:
         """
         Get valid values for the curve_state attribute
         """
         return await self.get_attribute('curve_states')
 
-    async def get_curve_types(self)->list[AttributeValue]:
+    async def get_curve_types(self)->list[AttributeValue] | None:
         """
         Get valid values for the curve_type attribute
         """
         return await self.get_attribute('curve_types')
 
-    async def get_functions(self)->list[AttributeValue]:
+    async def get_functions(self)->list[AttributeValue] | None:
         """
         Get valid values for the function attribute
         """
         return await self.get_attribute('functions')
 
-    async def get_filters(self)->list[AttributeValue]:
+    async def get_filters(self)->list[AttributeValue] | None:
         """
         Get valid values for the filter attribute
         """
         return await self.get_attribute('filters')
 
-    async def get_attribute(self, attribute:AttributeName)->list[AttributeValue]:
+    async def get_attribute(self, attribute:AttributeName)->list[AttributeValue] | None:
         """Get valid values for an attribute."""
         if attribute not in self._attributes:
             raise MetadataException(f'Attribute {attribute} is not valid')
-        response = await self.data_request('GET', self.urlbase, f'/api/v1/timeseries/curve-attributes/{attribute.replace("_", "-")}')
+        try:
+            response = await self.data_request('GET', self.urlbase, f'/api/v1/timeseries/curve-attributes/{attribute.replace("_", "-")}')
+        except util.ResponseError as e:
+            raise MetadataException(f'Failed loading {attribute}: {e.body}') from e
+        if response is None:
+            return None
         if not is_attribute_values(response):
             raise MetadataException(f'Failed loading {attribute}: unexpected response')
         return response
@@ -619,29 +630,23 @@ class Asession:
             databytes = data.encode() if isinstance(data, str) else json.dumps(data).encode()
         if data is None and rawdata is not None:
             databytes = rawdata
-        status_code = None
-
-        try:
-            async with self._semaphore, self._asession.request(
-                method=req_type, url=longurl, data=databytes, headers=headers, auth=aiohttp.BasicAuth(*authval) if authval else None,
-                # Per request, so a changed timeout applies even to an aiohttp session that is already open
-                timeout=aiohttp.ClientTimeout(total=self.timeout),
-            ) as resp:
-                status_code = resp.status
-
-                if stream:
-                    response_data = bytearray()
-                    async for chunk in resp.content.iter_chunked(1024):
-                        response_data.extend(chunk)
-                    byte_resp = bytes(response_data)
-                    # jsonify the content to mimic requests.Response behavior
-                    response_content = json.loads(byte_resp.decode())
-                else:
-                    response_content = await resp.json()
-
-                if status_code == 400:
-                    raise aiohttp.web_exceptions.HTTPBadRequest(reason=response_content["reason"], body=str(response_content))
-
-        except Exception:
-            raise
-        return response_content
+        async with self._semaphore, self._asession.request(
+            method=req_type, url=longurl, data=databytes, headers=headers, auth=aiohttp.BasicAuth(*authval) if authval else None,
+            # Per request, so a changed timeout applies even to an aiohttp session that is already open
+            timeout=aiohttp.ClientTimeout(total=self.timeout),
+        ) as resp:
+            # The body is read inside the request, so the timeout covers it
+            if stream:
+                chunks = bytearray()
+                async for chunk in resp.content.iter_chunked(1024):
+                    chunks.extend(chunk)
+                body = bytes(chunks)
+            else:
+                body = await resp.read()
+            status_code = resp.status
+        # Same rules as the sync Session: 204 has no data, any other non-2xx status is an error
+        if status_code == 204:
+            return None
+        if not 200 <= status_code < 300:
+            raise util.ResponseError(status_code, body.decode(errors='replace'))
+        return json.loads(body)
