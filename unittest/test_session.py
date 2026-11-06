@@ -441,3 +441,23 @@ def test_auth_type_enum():
                         auth_type=vit.auth.AuthType.VOLUE_IDENTITY)
     assert isinstance(s.auth, vit.auth.VolueIdentity)
     assert s.auth.auth_type is vit.auth.AuthType.VOLUE_IDENTITY
+
+
+def test_async_client_is_lazy_and_shares_login():
+    import asyncio
+    token = json.dumps({'token_type': 'Bearer', 'access_token': 'secrettoken', 'expires_in': 3600})
+    with requests_mock.Mocker() as m:
+        m.post('https://auth.volueinsight.com/oauth2/token', text=token)
+        s = vit.Session(client_id='id', client_secret='secret')
+        # One login, and no async client until it is used
+        assert m.call_count == 1
+        assert s._async_client is None
+
+        async def enter():
+            async with s as a:
+                assert a.auth is s.auth
+                return a
+
+        a = asyncio.run(enter())
+        assert m.call_count == 1
+        assert a._asession is not None and a._asession.closed
