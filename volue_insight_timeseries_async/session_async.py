@@ -606,6 +606,8 @@ class Asession:
         try:
             async with self._semaphore, self._asession.request(
                 method=req_type, url=longurl, data=databytes, headers=headers, auth=aiohttp.BasicAuth(*authval) if authval else None,
+                # Per request, so a changed timeout applies even to an aiohttp session that is already open
+                timeout=aiohttp.ClientTimeout(total=self.timeout),
             ) as resp:
                 status_code = resp.status
 
