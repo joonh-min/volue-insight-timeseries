@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 RETRY_COUNT = 4    # Number of times to retry
 RETRY_DELAY = 0.5  # Delay between retried calls, in seconds.
 TIMEOUT = 300      # Default timeout for web calls, in seconds.
-API_URLBASE = 'https://api.volueinsight.com'
+API_URLBASE = 'https://data-forecasts.volue.com'
 AUTH_URLBASE = 'https://auth.volueinsight.com'
 
 
@@ -57,7 +57,7 @@ class Asession:
     suthentication information either directly by using a ```client_id` and
     ``client_secret`` or using a ``config_file`` .
 
-    See https://api.volueinsight.com/#documentation for information how to get
+    See https://docs.volue.com/data-and-forecasts/volue-insight-timeseries/getting-started/connection for information how to get
     your authentication data.
 
     Parameters
@@ -172,7 +172,7 @@ class Asession:
             arg = util.make_arg('name', name)
         else:
             raise MetadataException('No curve specified')
-        response = await self.data_request('GET', self.urlbase, f'/api/curves/get?{arg}')
+        response = await self.data_request('GET', self.urlbase, f'/api/v1/timeseries/curves/get?{arg}')
         return self._build_curve(self._check_metadata(response))
 
     async def search(
@@ -335,7 +335,7 @@ class Asession:
         if args:
             astr = "?{}".format("&".join(args))
         # Now run the search, and try to produce a list of curves
-        response = await self.data_request('GET', self.urlbase, f'/api/curves{astr}')
+        response = await self.data_request('GET', self.urlbase, f'/api/v1/timeseries/curves{astr}')
 
         if isinstance(response, list):
             return [self._build_curve(self._check_metadata(metadata)) for metadata in response]
@@ -471,7 +471,7 @@ class Asession:
         """Get valid values for an attribute."""
         if attribute not in self._attributes:
             raise MetadataException(f'Attribute {attribute} is not valid')
-        response = await self.data_request('GET', self.urlbase, f'/api/{attribute}')
+        response = await self.data_request('GET', self.urlbase, f'/api/v1/timeseries/curve-attributes/{attribute.replace("_", "-")}')
         if not is_attribute_values(response):
             raise MetadataException(f'Failed loading {attribute}: unexpected response')
         return response

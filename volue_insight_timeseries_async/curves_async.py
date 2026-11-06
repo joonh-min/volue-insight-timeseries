@@ -115,7 +115,7 @@ class BaseCurve:
         return response
 
     async def access(self) -> list[DateRange] | None:
-        url = f'/api/curves/{self.id}/access'
+        url = f'/api/v1/timeseries/curves/{self.id}/access'
         return await self._load_date_ranges(url, 'Failed to load curve access')
 
     async def _load_ts(self, url:str, failmsg:str)->TSPayload|None:
@@ -232,7 +232,7 @@ class TimeSeriesCurve(BaseCurve):
         self._add_functions(args, time_zone, filter, function, frequency, output_time_zone)
         if len(args) > 0:
             astr = '?{}'.format('&'.join(args))
-        url = f'/api/series/{self.id}{astr}'
+        url = f'/api/v1/timeseries/series/{self.id}{astr}'
         result = await self._load_ts(url, 'Failed to load curve data')
         if result is None:
             return result
@@ -251,7 +251,7 @@ class TaggedCurve(BaseCurve):
         list
             Returns a list of all available tags for a Tagged Instance curve.
         """
-        url = f'/api/series/tagged/{self.id}/tags'
+        url = f'/api/v1/timeseries/series/tagged/{self.id}/tags'
         return await self._load_tags(url, 'Failed to fetch tags')
 
     @overload
@@ -379,7 +379,7 @@ class TaggedCurve(BaseCurve):
         self._add_from_to(args, data_from, data_to)
         self._add_functions(args, time_zone, filter, function, frequency, output_time_zone)
         astr = '&'.join(args)
-        url = f'/api/series/tagged/{self.id}?{astr}'
+        url = f'/api/v1/timeseries/series/tagged/{self.id}?{astr}'
         result = await self._load_ts_list(url, 'Failed to load tagged curve data')
         if result is None:
             return result
@@ -545,7 +545,7 @@ class InstanceCurve(BaseCurve):
         if modified_since is not None:
             args.append(util.make_arg('modified_since', modified_since))
         astr = '&'.join(args)
-        url = f'/api/instances/{self.id}?{astr}'
+        url = f'/api/v1/timeseries/instances/{self.id}?{astr}'
         result = await self._load_ts_list(url, 'Failed to find instances')
         if result is None:
             return result
@@ -651,7 +651,7 @@ class InstanceCurve(BaseCurve):
             self._add_from_to(args, data_from, data_to)
             self._add_functions(args, time_zone, filter, function, frequency, output_time_zone)
         astr = '&'.join(args)
-        url = f'/api/instances/{self.id}/get?{astr}'
+        url = f'/api/v1/timeseries/instances/{self.id}/at?{astr}'
         result = await self._load_ts(url, 'Failed to load instance')
         if result is None:
             return result
@@ -774,7 +774,7 @@ class InstanceCurve(BaseCurve):
         if issue_dates is not None:
             args.append(util.make_arg('issue_date', issue_dates))
         astr = '&'.join(args)
-        url = f'/api/instances/{self.id}/latest?{astr}'
+        url = f'/api/v1/timeseries/instances/{self.id}/latest?{astr}'
         result = await self._load_ts(url, 'Failed to load instance')
         if result is None:
             return result
@@ -923,7 +923,7 @@ class InstanceCurve(BaseCurve):
         if issue_times is not None:
             args.append(util.make_arg('issue_time', issue_times))
         astr = '&'.join(args)
-        url = f'/api/instances/{self.id}/relative?{astr}'
+        url = f'/api/v1/timeseries/instances/{self.id}/relative?{astr}'
         result = await self._load_ts(url, 'Failed to find instances')
         if result is None:
             return result
@@ -981,7 +981,7 @@ class InstanceCurve(BaseCurve):
             args.append(util.make_arg('issue_frequency', issue_frequency))
         self._add_from_to(args, issue_date_from, issue_date_to, prefix='issue_date_')
         astr = '&'.join(args)
-        url = f'/api/instances/{self.id}/absolute?{astr}'
+        url = f'/api/v1/timeseries/instances/{self.id}/absolute?{astr}'
         result = await self._load_ts(url, 'Failed to find instances')
         if result is None:
             return result
@@ -1000,7 +1000,7 @@ class TaggedInstanceCurve(BaseCurve):
         list
             Returns a list of all available tags for a Tagged Instance curve.
         """
-        url = f'/api/instances/tagged/{self.id}/tags'
+        url = f'/api/v1/timeseries/instances/tagged/{self.id}/tags'
         return await self._load_tags(url, 'Failed to fetch tags')
 
     async def search_instances(
@@ -1168,7 +1168,7 @@ class TaggedInstanceCurve(BaseCurve):
         if modified_since is not None:
             args.append(util.make_arg('modified_since', modified_since))
         astr = '&'.join(args)
-        url = f'/api/instances/tagged/{self.id}?{astr}'
+        url = f'/api/v1/timeseries/instances/tagged/{self.id}?{astr}'
         result = await self._load_ts_list(url, 'Failed to find tagged instances')
         if result is None:
             return result
@@ -1324,7 +1324,7 @@ class TaggedInstanceCurve(BaseCurve):
             self._add_from_to(args, data_from, data_to)
             self._add_functions(args, time_zone, filter, function, frequency, output_time_zone)
         astr = '&'.join(args)
-        url = f'/api/instances/tagged/{self.id}/get?{astr}'
+        url = f'/api/v1/timeseries/instances/tagged/{self.id}/at?{astr}'
         result = await self._load_ts_list(url, 'Failed to load tagged instance')
 
         if result is None:
@@ -1470,7 +1470,7 @@ class TaggedInstanceCurve(BaseCurve):
         if issue_dates is not None:
             args.append(util.make_arg('issue_date', issue_dates))
         astr = '&'.join(args)
-        url = f'/api/instances/tagged/{self.id}/latest?{astr}'
+        url = f'/api/v1/timeseries/instances/tagged/{self.id}/latest?{astr}'
         result = await self._load_ts(url, 'Failed to load tagged instance')
         if result is None:
             return result
@@ -1626,7 +1626,7 @@ class TaggedInstanceCurve(BaseCurve):
         if issue_times is not None:
             args.append(util.make_arg('issue_time', issue_times))
         astr = '&'.join(args)
-        url = f'/api/instances/tagged/{self.id}/relative?{astr}'
+        url = f'/api/v1/timeseries/instances/tagged/{self.id}/relative?{astr}'
         result = await self._load_ts(url, 'Failed to find instances')
         if result is None:
             return result
@@ -1690,7 +1690,7 @@ class TaggedInstanceCurve(BaseCurve):
             args.append(util.make_arg('tag', tag))
         self._add_from_to(args, issue_date_from, issue_date_to, prefix='issue_date_')
         astr = '&'.join(args)
-        url = f'/api/instances/tagged/{self.id}/absolute?{astr}'
+        url = f'/api/v1/timeseries/instances/tagged/{self.id}/absolute?{astr}'
         result = await self._load_ts(url, 'Failed to find instances')
         if result is None:
             return result
