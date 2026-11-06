@@ -5,6 +5,7 @@ import json
 import time
 import warnings
 from configparser import RawConfigParser
+from contextlib import asynccontextmanager
 from typing import IO, TYPE_CHECKING, ClassVar, Literal, overload
 from urllib.parse import urljoin
 
@@ -13,6 +14,7 @@ import requests
 
 from . import auth, curves_async, util
 from .auth import AuthType
+from .events_async import AsyncEventListener
 from .models import (
     CURVE_METADATA_KEYS,
     AttributeName,
@@ -29,9 +31,8 @@ from .models import (
 from .util import CurveException
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import AsyncGenerator, Iterable
 
-    from .events import EventListener
 
 RETRY_COUNT = 4    # Number of times to retry
 RETRY_DELAY = 0.5  # Delay between retried calls, in seconds.
@@ -395,10 +396,25 @@ class Asession:
         curve_list:curves_async.BaseCurve|int|Iterable[curves_async.BaseCurve|int],
         start_time:DatetimeLike|None=None,
         timeout:float|None=None,
-    )->EventListener:
-        """Get an event listener for a list of curves_async."""
-        # shortcut: EventListener reads the stream with a sync Session, port it to aiohttp before allowing this
-        raise NotImplementedError('Asession does not support events yet, use Session.events')
+    )->AsyncEventListener:
+        """Get an async event listener for a list of curves, use it with `async for event in listener`."""
+        return AsyncEventListener(self, curve_list, start_time=start_time, timeout=timeout)
+
+    @asynccontextmanager
+    async def stream(self, url:str)->AsyncGenerator[aiohttp.ClientResponse, None]:
+        """Open a long-lived GET request, such as the event stream, and give the response to read from.
+
+        It is not retried and does not use the concurrency limit, since it stays open.
+        """
+        if self._asession is None:
+            raise MetadataException('Async session not initialized')
+        headers = await self._auth_headers(None, None)
+        # No total timeout, the stream can stay quiet for a long time
+        timeout = aiohttp.ClientTimeout(total=None, connect=self.timeout)
+        async with self._asession.request('GET', urljoin(self.urlbase, url), headers=headers, timeout=timeout) as resp:
+            if not 200 <= resp.status < 300:
+                raise util.ResponseError(resp.status, (await resp.read()).decode(errors='replace'))
+            yield resp
 
     _attributes: ClassVar[set[str]] = {'commodities', 'categories', 'areas', 'stations', 'sources', 'scenarios',
                    'units', 'time_zones', 'versions', 'frequencies', 'data_types',

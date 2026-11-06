@@ -12,6 +12,8 @@ import requests_mock
 
 import volue_insight_timeseries_async as vit
 from volue_insight_timeseries_async.curves_async import InstanceCurve, PairedListCurve
+from volue_insight_timeseries_async.events import CurveEvent, DefaultEvent, EventTimeout
+from volue_insight_timeseries_async.events_async import AsyncEventListener
 from volue_insight_timeseries_async.models import JSONValue
 from volue_insight_timeseries_async.session_async import Asession, MetadataException
 
@@ -33,10 +35,32 @@ class FakeResponse:
         return False
 
 
+class FakeStream:
+    def __init__(self, lines: list[bytes], block: bool) -> None:
+        self.lines = list(lines)
+        self.block = block
+
+    async def readline(self) -> bytes:
+        if self.lines:
+            return self.lines.pop(0)
+        if self.block:
+            # Like a quiet event stream: nothing arrives
+            await asyncio.Event().wait()
+        return b''
+
+
+class FakeStreamResponse(FakeResponse):
+    """A server-sent event stream that gives these lines, then ends or stays quiet"""
+
+    def __init__(self, lines: list[bytes], status: int = 200, block: bool = False) -> None:
+        super().__init__(status, b'stream error')
+        self.content = FakeStream(lines, block)
+
+
 class FakeAiohttpSession:
     """Answers requests in order from a list of (status, body), and records each URL"""
 
-    def __init__(self, *responses: tuple[int, bytes | JSONValue] | Exception) -> None:
+    def __init__(self, *responses: tuple[int, bytes | JSONValue] | Exception | FakeStreamResponse) -> None:
         self.responses = list(responses)
         self.urls: list[str] = []
         self.headers: list[object] = []
@@ -48,11 +72,13 @@ class FakeAiohttpSession:
         answer = self.responses.pop(0)
         if isinstance(answer, Exception):
             raise answer
+        if isinstance(answer, FakeStreamResponse):
+            return answer
         return FakeResponse(*answer)
 
 
 def make_asession(
-    monkeypatch: pytest.MonkeyPatch, *responses: tuple[int, bytes | JSONValue] | Exception, retries: int = 4
+    monkeypatch: pytest.MonkeyPatch, *responses: tuple[int, bytes | JSONValue] | Exception | FakeStreamResponse, retries: int = 4
 ) -> tuple[Asession, FakeAiohttpSession]:
     a = Asession(urlbase='https://data-forecasts.volue.com', retries=retries)
     monkeypatch.setattr(vit.session_async, 'RETRY_DELAY', 0)
@@ -288,3 +314,57 @@ def test_async_paired_list_curve(monkeypatch: pytest.MonkeyPatch) -> None:
     assert fake.urls[1].startswith('https://data-forecasts.volue.com/api/v1/timeseries/instances/paired/5?')
     with pytest.raises(vit.util.MethodNotApplicable):
         asyncio.run(curve.get_latest())
+
+
+async def take(listener: AsyncEventListener, count: int) -> list[object]:
+    items: list[object] = []
+    async for item in listener:
+        items.append(item)
+        if len(items) == count:
+            listener.close()
+            break
+    return items
+
+
+def test_async_events_parse_curve_and_default_events(monkeypatch: pytest.MonkeyPatch) -> None:
+    stream = FakeStreamResponse([
+        b': comment\n',
+        b'event: curve_event\n',
+        b'data: {"id": 5, "created": "2024-01-01T00:00:00Z", "operation": "modify"}\n',
+        b'\n',
+        b'data: hello\n',
+        b'data: world\n',
+        b'\n',
+    ])
+    a, fake = make_asession(monkeypatch, stream)
+    curve = a.make_curve(5, 'INSTANCES')
+    first, second = asyncio.run(take(a.events([curve]), 2))
+    assert isinstance(first, CurveEvent)
+    assert first.id == 5
+    assert first.curve is curve
+    assert first.operation == 'modify'
+    assert isinstance(second, DefaultEvent)
+    assert second.json_data is None
+    assert fake.urls == ['https://data-forecasts.volue.com/api/v1/timeseries/events?id=5']
+
+
+def test_async_events_yield_timeout_when_quiet(monkeypatch: pytest.MonkeyPatch) -> None:
+    a, _fake = make_asession(monkeypatch, FakeStreamResponse([], block=True))
+    (item,) = asyncio.run(take(a.events(5, timeout=0.05), 1))
+    assert isinstance(item, EventTimeout)
+
+
+def test_async_events_reconnect_after_the_stream_ends(monkeypatch: pytest.MonkeyPatch) -> None:
+    ended = FakeStreamResponse([b'retry: 0\n'])
+    again = FakeStreamResponse([b'data: {"x": 1}\n', b'\n'])
+    a, fake = make_asession(monkeypatch, ended, again)
+    (item,) = asyncio.run(take(a.events(5), 1))
+    assert isinstance(item, DefaultEvent)
+    assert item.json_data == {'x': 1}
+    assert len(fake.urls) == 2
+
+
+def test_async_events_raise_on_error_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    a, _fake = make_asession(monkeypatch, FakeStreamResponse([], status=403))
+    with pytest.raises(vit.util.ResponseError, match='HTTP 403'):
+        asyncio.run(take(a.events(5), 1))

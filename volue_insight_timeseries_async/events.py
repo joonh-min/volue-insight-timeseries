@@ -6,7 +6,8 @@ import queue
 import threading
 import time
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Self
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Protocol, Self
 
 import sseclient
 
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
     import datetime
     from types import TracebackType
 
+    from . import curves_async
     from .session import Session
 
 
@@ -117,10 +119,27 @@ class EventTimeout:
     """Returned on timeout, etc."""
 
 
+class SSEEvent(Protocol):
+    """What DefaultEvent and CurveEvent read from a server-sent event, sseclient.Event has it too"""
+
+    @property
+    def data(self) -> str: ...
+
+
+@dataclass
+class ServerSentEvent:
+    """One server-sent event, as parsed by the async event listener"""
+
+    event: str = 'message'
+    data: str = ''
+    id: str | None = None
+    retry: int | None = None
+
+
 class DefaultEvent:
     json_data: JSONValue  # parsed data of the event, None when it is not JSON
 
-    def __init__(self, sse_event: sseclient.Event) -> None:
+    def __init__(self, sse_event: SSEEvent) -> None:
         self._raw_event = sse_event
         try:
             self.json_data = json.loads(sse_event.data)
@@ -130,14 +149,14 @@ class DefaultEvent:
 
 class CurveEvent(DefaultEvent):
     id: int
-    curve: curves.BaseCurve | None
+    curve: curves.BaseCurve | curves_async.BaseCurve | None
     created: datetime.datetime
     operation: str
     tag: str | None
     issue_date: datetime.datetime | None
     range: tuple[datetime.datetime | None, datetime.datetime | None] | None
 
-    def __init__(self, sse_event: sseclient.Event) -> None:
+    def __init__(self, sse_event: SSEEvent) -> None:
         super().__init__(sse_event)
         payload = self.json_data
         if not is_curve_event_payload(payload):
