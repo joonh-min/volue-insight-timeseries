@@ -15,22 +15,46 @@ jobs:
       contents: 'read'
       id-token: 'write'
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-
-      - uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # v5.5.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          python-version: '3.11'
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
 
-      - run: pip install -U twine wheel
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+
+      - run: pip install -U setuptools twine wheel
 
       - name: Read version
         id: read-version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git checkout main
-          tag_name=$(git describe --tags --exact-match)
-          version=${tag_name#v}
-          echo "$version" > volue_insight_timeseries/VERSION
-          echo "VERSION=$version" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          # The checked-out commit is the one "Create Release" tagged. Pick the
+          # newest release pointing at it; when an rc and the final release
+          # share a commit, the newest is the one that run created. Drafts are
+          # excluded because their tag does not exist yet.
+          head_sha=$(git rev-parse HEAD)
+          # Captured first so a gh failure aborts here instead of being
+          # swallowed by a process substitution.
+          candidates=$(gh release list --repo "${GITHUB_REPOSITORY}" --exclude-drafts --json tagName --jq '.[].tagName')
+          tag_name=""
+          while read -r candidate; do
+            [[ -n "${candidate}" ]] || continue
+            candidate_sha=$(git rev-parse --verify --quiet "${candidate}^{commit}" || true)
+            if [[ "${candidate_sha}" == "${head_sha}" ]]; then
+              tag_name="${candidate}"
+              break
+            fi
+          done <<< "${candidates}"
+          if [[ -z "${tag_name}" ]]; then
+            echo "No release points at the checked-out commit ${head_sha}" >&2
+            exit 1
+          fi
+          echo "${tag_name}" > volue_insight_timeseries/VERSION
+          echo "VERSION=${tag_name}" >> "$GITHUB_OUTPUT"
 
       - name: Build dist
         id: build-dist
@@ -39,6 +63,6 @@ jobs:
           python setup.py sdist bdist_wheel
 
       - name: Publish package to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
           packages-dir: dist/

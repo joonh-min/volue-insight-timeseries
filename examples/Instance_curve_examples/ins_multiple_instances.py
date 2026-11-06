@@ -1,7 +1,7 @@
 """
 This simple example reads multiple instances from an INSTANCE curve
 Have a look at the documentation for further information:
-https://wattsight-volue-insight-timeseries.readthedocs-hosted.com/en/latest/index.html
+https://docs.volue.com/data-and-forecasts/volue-insight-timeseries/
 """
 
 import volue_insight_timeseries
@@ -14,7 +14,7 @@ my_config_file = 'path/to/your/config.ini'
 ############################################
 
 
-# Create a session to Connect to Volue Insight API
+# Create a session to Connect to Volue Data & Forecasts API
 session = volue_insight_timeseries.Session(config_file=my_config_file)
 
 

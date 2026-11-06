@@ -6,13 +6,15 @@ from __future__ import annotations
 
 import calendar
 import datetime
+import re
 import warnings
-from typing import Any, Literal, TypedDict, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, TypeVar, Union
 from urllib.parse import quote_plus
 
 import dateutil.parser
-import numpy as np
-import pandas as pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 try:
     from urllib.parse import quote_plus
@@ -21,13 +23,39 @@ except ImportError:
 from zoneinfo import ZoneInfo
 from zoneinfo._common import ZoneInfoNotFoundError
 
-DatetimeLike = Union[str, pd.Timestamp, datetime.datetime, datetime.date]
+DatetimeLike = Union[str, "pd.Timestamp", datetime.datetime, datetime.date]
+
+_MIN_PANDAS_VERSION = (1, 5)
+
+
+def _require_pandas():
+    # Pandas is an optional extra. Import it only when a pandas function runs.
+    # Pip keeps a pandas that is already installed, so check the version here.
+    # If pandas is missing or too old, raise ImportError with the install
+    # command. An unknown version format skips the check.
+    try:
+        import pandas
+    except ImportError as e:
+        raise ImportError(
+            "This function needs pandas. Install it with: "
+            "pip install 'volue-insight-timeseries[pandas]'"
+        ) from e
+    match = re.match(r"(\d+)\.(\d+)", getattr(pandas, "__version__", ""))
+    if match and tuple(map(int, match.groups())) < _MIN_PANDAS_VERSION:
+        raise ImportError(
+            "This function needs pandas>=1.5, but pandas "
+            f"{pandas.__version__} is installed. Upgrade it with: "
+            "pip install -U 'volue-insight-timeseries[pandas]'"
+        )
+    return pandas
+
 
 # Curve types
 TIME_SERIES = "TIME_SERIES"
 TAGGED = "TAGGED"
 INSTANCES = "INSTANCES"
 TAGGED_INSTANCES = "TAGGED_INSTANCES"
+PAIRED_LIST = "PAIRED_LIST"
 
 _TsFreqs = Literal["Y", "S", "Q", "M", "W", "H12", "H6", "H3", "H", "MIN30", "MIN15", "MIN5", "MIN", "D"]
 
@@ -80,6 +108,12 @@ class InputDict(TypedDict):
 
 
 class CurveException(Exception):
+    pass
+
+class MethodNotApplicable(Exception):
+    """
+    Exception raised when a method is not applicable for a specific curve type.
+    """
     pass
 
 
@@ -194,6 +228,7 @@ class TS:
         -------
         pandas.Series
         """
+        pd = _require_pandas()
         if name is None:
             name = self.fullname
         if self.points is None or len(self.points) == 0:
@@ -227,6 +262,9 @@ class TS:
 
     @staticmethod
     def from_pandas(pd_series:pd.Series[float])->TS:
+        pd = _require_pandas()
+        import numpy as np
+
         # Clean up some of the more common Pandas/api problems
         pd_series = pd_series.astype(np.float64).replace({np.nan: None})
 
@@ -322,6 +360,54 @@ class TS:
         df = _ts_list_to_dataframe(ts_list)
         return _generated_series_to_TS(df.median(axis=1), name)
 
+class PairedTS(TS):
+    """
+    A class to hold paired data from a PairedListCurve, extending the standard TS object.
+    Used for data like price-volume pairs, where each point is a tuple/list.
+    """
+
+    tags: Optional[list] = None
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        if not isinstance(self.tags, list) or not self.tags:
+            raise ValueError(
+                "PairedTS requires 'tags' as a non-empty list to label the DataFrame columns."
+            )
+
+        # Validate points structure
+        if self.points:
+            if not isinstance(self.points[0], (list, tuple)):
+                raise ValueError("Each point in PairedTS must be a list or tuple.")
+
+            values_per_point = len(self.points[0])
+            if values_per_point != len(self.tags):
+                raise ValueError(
+                    f"Point structure mismatch: ({len(self.tags)}) tags provided but each point has ({values_per_point}) values."
+                )
+
+
+    def to_pandas(self, name=None) -> pd.DataFrame:
+        """
+        Convert the PairedTS object to a pandas.DataFrame.
+        Rows = paired points, columns = tags.
+
+        Returns:
+            pandas.DataFrame
+            A pandas.DataFrame representing the paired data, with curve metadata
+            stored in the `.attrs` dictionary.
+        """
+        pd = _require_pandas()
+        df = pd.DataFrame(self.points or [], columns=self.tags)
+
+        # Curve Metadata in DataFrame attributes
+        df.attrs["name"] = self.fullname
+        df.attrs["frequency"] = self.frequency
+        df.attrs["issue_date"] = self.issue_date
+        df.attrs["length"] = len(self.points or [])
+
+        return df
 
 def _generated_series_to_TS(series:pd.Series[float], name:str)->TS:
     series.name = name
@@ -329,6 +415,7 @@ def _generated_series_to_TS(series:pd.Series[float], name:str)->TS:
 
 
 def _ts_list_to_dataframe(ts_list:list[TS])->pd.DataFrame:
+    pd = _require_pandas()
     return pd.concat([ts.to_pandas() for ts in ts_list], axis=1)
 
 
@@ -337,6 +424,7 @@ def tags_to_DF(tagged_list:list[TS])->pd.DataFrame:
     Given a list of tagged series/instances, create a DataFrame with the tag of
     each as column name
     """
+    pd = _require_pandas()
     return pd.DataFrame({s.tag: s.to_pandas() for s in tagged_list})
 
 

@@ -7,33 +7,58 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   unittests:
     timeout-minutes: 15
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
     strategy:
       matrix:
-        python-version: [ '3.10' , '3.11', '3.12', '3.13' ]
-        libraries-versions: [ 'pandas==1.5.2 "numpy<2.0"', 'pandas==2.2.2', 'pandas>=2.2.3' ]
-        exclude:
+        # Per Python version: the oldest pandas with prebuilt wheels for it,
+        # and the latest pandas pip resolves (already installed by the eager upgrade).
+        include:
+          # ubuntu-latest (26.04) has no Python 3.9 build; pin 3.9 to 24.04.
+          - python-version: '3.9'
+            libraries-versions: 'pandas==1.5.0 "numpy<2.0"'
+            os: ubuntu-24.04
+          - python-version: '3.9'
+            libraries-versions: 'pandas'
+            os: ubuntu-24.04
+          - python-version: '3.10'
+            libraries-versions: 'pandas==1.5.0 "numpy<2.0"'
+          - python-version: '3.10'
+            libraries-versions: 'pandas'
+          - python-version: '3.11'
+            libraries-versions: 'pandas==1.5.0 "numpy<2.0"'
+          - python-version: '3.11'
+            libraries-versions: 'pandas'
+          - python-version: '3.12'
+            libraries-versions: 'pandas==2.1.1 "numpy<2.0"'
+          - python-version: '3.12'
+            libraries-versions: 'pandas'
           - python-version: '3.13'
-            libraries-versions: 'pandas==1.5.2 "numpy<2.0"'
+            libraries-versions: 'pandas==2.2.3'
           - python-version: '3.13'
-            libraries-versions: 'pandas==2.2.2'
+            libraries-versions: 'pandas'
+          - python-version: '3.14'
+            libraries-versions: 'pandas==2.3.3'
+          - python-version: '3.14'
+            libraries-versions: 'pandas'
     steps:
-      - name: Cancel Previous Runs
-        uses: styfle/cancel-workflow-action@0.12.1
-        with:
-          access_token: ${{ github.token }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-
-      - uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # v5.5.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Cache pip dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ matrix.libraries-versions }}-${{ hashFiles('**/requirements.txt', '**/test-requirements.txt') }}
@@ -50,4 +75,36 @@ jobs:
       - name: Run tests
         run: |
           python -m pytest -vv
+
+  no-pandas:
+    timeout-minutes: 15
+    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
+    strategy:
+      matrix:
+        include:
+          # ubuntu-latest has no Python 3.9 build, so 3.9 runs on 24.04.
+          - python-version: '3.9'
+            os: ubuntu-24.04
+          - python-version: '3.14'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies without pandas ${{ matrix.python-version }}
+        run: |
+          pip install -r requirements.txt -r test-requirements.txt
+
+      # The core install must not pull pandas or numpy.
+      # If a new dependency pulls pandas, this step fails.
+      - name: Fail if pandas or numpy is installed
+        run: |
+          python -c "import importlib.util as u, sys; sys.exit(any(u.find_spec(m) for m in ('pandas', 'numpy')))"
+
+      # test_util.py imports pandas at module level, so skip it here.
+      - name: Run tests without pandas
+        run: |
+          python -m pytest -vv --ignore=unittest/test_util.py
 

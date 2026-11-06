@@ -26,19 +26,42 @@ with open(os.path.join(here, 'volue_insight_timeseries/VERSION')) as fv:
 
 setup(
     name='volue_insight_timeseries',
-    python_requires='>=3.10, <3.14',
+    # Supported Python versions policy:
+    # https://docs.volue.com/data-and-forecasts/volue-insight-timeseries/getting-started/installation#supported-python-versions
+    # No upper cap: a cap makes pip on a newer Python fall back to an old release.
+    # Raising the minimum drops users on that version, so it needs a major release.
+    python_requires='>=3.9',
     packages=find_packages(),
     install_requires=extract_requirements('requirements.txt'),
+    extras_require={
+        'pandas': ['pandas>=1.5.0'],
+    },
     tests_require=[
         'pytest',
         'pytest-cov >= 2.5',
         'requests-mock >= 1.3',
     ],
     version=version,
-    description='Volue Insight API python library',
-    long_description='This library is meant as a simple toolkit for working with data from https://api.volueinsight.com/ (or equivalent services).  Note that access is based on some sort of login credentials, this library is not all that useful unless you have a valid Volue Insight account.',
+    description='Volue Data & Forecasts API python library',
+    long_description=(
+        'Python library for the Volue Data & Forecasts Timeseries API. '
+        'You need a Volue Data & Forecasts account. '
+        'Documentation: https://docs.volue.com/data-and-forecasts/volue-insight-timeseries/'
+    ),
     package_data={'volue_insight_timeseries': ['VERSION']},
-    author='Volue Insight',
-    author_email='support.insight@volue.com',
-    url='https://www.volueinsight.com'
+    author='Volue Data & Forecasts',
+    license='MIT',
+    author_email='df.support@volue.com',
+    url='https://www.volue.com/data-and-forecasts',
+    # Tested Python versions: keep in line with .github/workflows/unittests.yml
+    classifiers=[
+        'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3 :: Only',
+        'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
+        'Programming Language :: Python :: 3.13',
+        'Programming Language :: Python :: 3.14',
+    ],
 )
