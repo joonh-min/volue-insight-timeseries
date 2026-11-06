@@ -110,8 +110,6 @@ class BaseCurve:
 
     async def _load_data(self, url:str, failmsg:str, urlbase:str|None=None)->JSONValue:
         urlbase = self._session.urlbase if urlbase is None else urlbase
-        # Cleared first, so a failed call does not leave the previous response here
-        self._last_response: JSONValue = None
         try:
             response = await self._session.data_request('GET', urlbase, url)
         except util.ResponseError as e:
