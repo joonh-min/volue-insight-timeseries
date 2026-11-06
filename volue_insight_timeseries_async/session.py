@@ -668,8 +668,12 @@ class Session:
         """
         if self._async_client is None:
             self._async_client = Asession(urlbase=self.urlbase, timeout=self.timeout, retry_update_auth=self.retry_update_auth)
-            # Share this session's login, so the async client needs no token request of its own
-            self._async_client.auth = self.auth
+        # Copy the settings on every entry, so later changes to this session reach the async client
+        self._async_client.urlbase = self.urlbase
+        self._async_client.timeout = self.timeout
+        self._async_client.retry_update_auth = self.retry_update_auth
+        # Share this session's login, so the async client needs no token request of its own
+        self._async_client.auth = self.auth
         if self._async_client._asession is None or self._async_client._asession.closed:
             self._async_client._asession = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout), headers=self._async_client._get_auth_header_with_retry())
 

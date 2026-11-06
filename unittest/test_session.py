@@ -461,3 +461,8 @@ def test_async_client_is_lazy_and_shares_login():
         a = asyncio.run(enter())
         assert m.call_count == 1
         assert a._asession is not None and a._asession.closed
+
+        # Settings changed after the first use reach the async client on the next entry
+        s.timeout = 12
+        assert asyncio.run(enter()) is a
+        assert a.timeout == 12
