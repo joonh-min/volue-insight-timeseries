@@ -680,7 +680,9 @@ class Session:
         if self._async_client._asession is None or self._async_client._asession.closed:
             # A new semaphore with each aiohttp session, so both belong to the event loop that is running now
             self._async_client._semaphore = asyncio.Semaphore(session_async.CONCURRENT_REQUESTS)
-            self._async_client._asession = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout), headers=self._async_client._get_auth_header_with_retry())
+            # Fails early when no login is set up; the token itself is sent per request, so it never goes stale here
+            self._async_client._get_auth_header_with_retry()
+            self._async_client._asession = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout))
         self._async_users += 1
         return self._async_client
 
