@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 RETRY_COUNT = 4    # Number of times to retry
 RETRY_DELAY = 0.5  # Delay between retried calls, in seconds.
 TIMEOUT = 300      # Default timeout for web calls, in seconds.
+CONCURRENT_REQUESTS = 10  # Requests one Asession sends at the same time
 API_URLBASE = 'https://data-forecasts.volue.com'
 AUTH_URLBASE = auth.AUTH_URLBASE
 
@@ -111,7 +112,7 @@ class Asession:
         if retries < 0:
             raise ValueError(f'retries must be 0 or more, not {retries}')
         self.retries = retries
-        self._semaphore = asyncio.Semaphore(10)  # Limit concurrent connections
+        self._semaphore = asyncio.Semaphore(CONCURRENT_REQUESTS)
         if config_file is not None:
             self.read_config_file(config_file)
         elif client_id is not None and client_secret is not None:

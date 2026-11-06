@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -11,7 +12,7 @@ from urllib.parse import urljoin, urlparse
 import aiohttp
 import requests
 
-from . import auth, curves, retry, util
+from . import auth, curves, retry, session_async, util
 from ._version import __version__
 from .auth import AuthType
 from .events import EventListener
@@ -140,6 +141,8 @@ class Session:
 
         # Made on the first `async with`, so a sync-only Session does not log in twice
         self._async_client: Asession | None = None
+        # Open `async with` blocks, the aiohttp session is closed when the last one exits
+        self._async_users = 0
 
     @property
     def urlbase(self)->str:
@@ -675,8 +678,10 @@ class Session:
         # Share this session's login, so the async client needs no token request of its own
         self._async_client.auth = self.auth
         if self._async_client._asession is None or self._async_client._asession.closed:
+            # A new semaphore with each aiohttp session, so both belong to the event loop that is running now
+            self._async_client._semaphore = asyncio.Semaphore(session_async.CONCURRENT_REQUESTS)
             self._async_client._asession = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout), headers=self._async_client._get_auth_header_with_retry())
-
+        self._async_users += 1
         return self._async_client
 
     async def __aexit__(self, exc_type:type[BaseException]|None, exc_val: BaseException|None, exc_tb: TracebackType|None)->None:
@@ -689,5 +694,8 @@ class Session:
             exc_tb: Traceback.
         """
         logging.info("Closing ASYNC session")
+        self._async_users -= 1
+        if self._async_users > 0:
+            return
         if self._async_client is not None and self._async_client._asession is not None and not self._async_client._asession.closed:
             await self._async_client._asession.close()

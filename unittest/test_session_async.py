@@ -151,3 +151,48 @@ def test_session_retries_reach_async_client() -> None:
             return a
 
     assert asyncio.run(enter()).retries == 0
+
+
+def make_logged_in_session() -> vit.Session:
+    token = json.dumps({'token_type': 'Bearer', 'access_token': 'secrettoken', 'expires_in': 3600})
+    with requests_mock.Mocker() as m:
+        m.post('https://auth.volueinsight.com/oauth2/token', text=token)
+        return vit.Session(client_id='id', client_secret='secret')
+
+
+def test_aiohttp_session_stays_open_until_the_last_async_with_exits() -> None:
+    s = make_logged_in_session()
+
+    async def run() -> None:
+        first_done = asyncio.Event()
+
+        async def first() -> None:
+            async with s:
+                pass
+            first_done.set()
+
+        async def second() -> None:
+            async with s as a:
+                await first_done.wait()
+                # The other block has exited, this one still needs the connection
+                assert a._asession is not None and not a._asession.closed
+
+        await asyncio.gather(second(), first())
+
+    asyncio.run(run())
+    assert s._async_client is not None and s._async_client._asession is not None
+    assert s._async_client._asession.closed
+
+
+def test_session_can_be_reused_in_a_new_event_loop() -> None:
+    s = make_logged_in_session()
+
+    async def enter() -> tuple[object, object]:
+        async with s as a:
+            return a._asession, a._semaphore
+
+    first = asyncio.run(enter())
+    second = asyncio.run(enter())
+    # Each event loop gets its own aiohttp session and semaphore
+    assert first[0] is not second[0]
+    assert first[1] is not second[1]
