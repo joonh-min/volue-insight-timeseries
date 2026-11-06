@@ -8,27 +8,25 @@ import calendar
 import datetime
 import re
 import warnings
-from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, TypeVar, Union
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, Final, Literal, TypeGuard, override
 from urllib.parse import quote_plus
-
-import dateutil.parser
-
-if TYPE_CHECKING:
-    import pandas as pd
-
-try:
-    from urllib.parse import quote_plus
-except ImportError:
-    from urllib import quote_plus
 from zoneinfo import ZoneInfo
 from zoneinfo._common import ZoneInfoNotFoundError
 
-DatetimeLike = Union[str, "pd.Timestamp", datetime.datetime, datetime.date]
+import dateutil.parser
+
+from .models import ArgValue, DateRange, DatetimeLike, PairedTSPayload, Point, TSCurveType, TsFreq, TSPayload
+
+if TYPE_CHECKING:
+    from types import ModuleType
+
+    import pandas as pd
 
 _MIN_PANDAS_VERSION = (1, 5)
 
 
-def _require_pandas():
+def _require_pandas() -> ModuleType:
     # Pandas is an optional extra. Import it only when a pandas function runs.
     # Pip keeps a pandas that is already installed, so check the version here.
     # If pandas is missing or too old, raise ImportError with the install
@@ -51,16 +49,16 @@ def _require_pandas():
 
 
 # Curve types
-TIME_SERIES = "TIME_SERIES"
-TAGGED = "TAGGED"
-INSTANCES = "INSTANCES"
-TAGGED_INSTANCES = "TAGGED_INSTANCES"
-PAIRED_LIST = "PAIRED_LIST"
+TIME_SERIES: Final = "TIME_SERIES"
+TAGGED: Final = "TAGGED"
+INSTANCES: Final = "INSTANCES"
+TAGGED_INSTANCES: Final = "TAGGED_INSTANCES"
+PAIRED_LIST: Final = "PAIRED_LIST"
 
-_TsFreqs = Literal["Y", "S", "Q", "M", "W", "H12", "H6", "H3", "H", "MIN30", "MIN15", "MIN5", "MIN", "D"]
+_TsFreqs = TsFreq
 
 # Frequency mapping from TS to Pandas
-_TS_FREQ_TABLE = {
+_TS_FREQ_TABLE: dict[TsFreq, str] = {
     "Y": "YS",
     "S": "2QS",
     "Q": "QS",
@@ -96,15 +94,12 @@ _PANDAS_FREQ_TABLE:dict[str,_TsFreqs] = {
 for ts_freq, pandas_freq in _TS_FREQ_TABLE.items():
     _PANDAS_FREQ_TABLE[pandas_freq.upper()] = ts_freq
 
-class InputDict(TypedDict):
-    frequency: _TsFreqs
-    time_zone: str
-    id: int
-    name: str
-    issue_date: str
-    created: str
-    modified: str
-    points: list[list[float]]
+def _is_ts_freq(value: str) -> TypeGuard[TsFreq]:
+    return value in _TS_FREQ_TABLE
+
+
+# Kept for backward compatibility, use TSPayload
+InputDict = TSPayload
 
 
 class CurveException(Exception):
@@ -114,7 +109,6 @@ class MethodNotApplicable(Exception):
     """
     Exception raised when a method is not applicable for a specific curve type.
     """
-    pass
 
 
 class TS:
@@ -122,29 +116,42 @@ class TS:
     A class to hold a basic time series.
     """
 
+    id: int | None
+    name: str | None
+    # A TS made from pandas keeps a pandas frequency that has no TS name
+    frequency: TsFreq | str
+    time_zone: str | None
+    tz: ZoneInfo
+    tag: str | None
+    issue_date: DatetimeLike | None
+    curve_type: TSCurveType
+    points: list[Point] | None
+    created: str | None = None
+    modified: str | None = None
+
     def __init__(
         self,
         id: int|None = None,
         name:str|None=None,
-        frequency:_TsFreqs|None=None,
+        frequency:TsFreq|str|None=None,
         time_zone:str|None=None,
         tag:str|None=None,
-        issue_date:str|None=None,
-        curve_type:Literal["TAGGED_INSTANCES", "INSTANCES", "TAGGED", "TIME_SERIES"]|None=None,
-        points:list[list[float]]|None=None,
-        input_dict:InputDict|None=None,
+        issue_date:DatetimeLike|None=None,
+        curve_type:TSCurveType|None=None,
+        points:list[Point]|None=None,
+        input_dict:TSPayload|PairedTSPayload|None=None,
     )->None:
         self.id = id
         self.name = name
-        self.frequency = frequency
         self.time_zone = time_zone
         self.tag = tag
         self.issue_date = issue_date
-        self.curve_type = curve_type
         self.points = points
 
-        # input_dict is the json dict from the API
+        # input_dict is the json dict from the API, its values win over the arguments
         if input_dict is not None:
+            frequency = input_dict.get("frequency", frequency)
+            curve_type = input_dict.get("curve_type", curve_type)
             for k, v in input_dict.items():
                 setattr(self, k, v)
 
@@ -153,11 +160,11 @@ class TS:
         else:
             self.tz = ZoneInfo("CET")
 
-        if self.curve_type is None:
-            self.curve_type = detect_curve_type(self.issue_date, self.tag)
+        self.curve_type = curve_type if curve_type is not None else detect_curve_type(self.issue_date, self.tag)
         # Validation
-        if self.frequency is None:
+        if frequency is None:
             raise CurveException("TS must have frequency")
+        self.frequency = frequency
 
     def __str__(self)->str:
         size = f" size: {len(self.points)}" if self.points else ""
@@ -180,10 +187,10 @@ class TS:
 
         Order is: issue_date, id, name, tag, then object id.
         """
-        def keys(ts):
+        def keys(ts: TS) -> tuple[str, float, str, str, int]:
             return (
                 (
-                    ts.issue_date if ts.issue_date is not None else "",
+                    str(ts.issue_date) if ts.issue_date is not None else "",
                     ts.id if ts.id is not None else float("inf"),
                     ts.name if ts.name is not None else "",
                     ts.tag if ts.tag is not None else "",
@@ -202,7 +209,7 @@ class TS:
 
     @property
     def fullname(self)->str:
-        attrs = []
+        attrs: list[str] = []
         if self.name:
             attrs.append(self.name)
         else:
@@ -237,9 +244,10 @@ class TS:
         index = []
         values = []
         for row in self.points:
-            if len(row) != 2:
+            timestamp = row[0]
+            if len(row) != 2 or timestamp is None:
                 raise ValueError("Points have unexpected contents")
-            dt = datetime.datetime.fromtimestamp(row[0] / 1000.0, self.tz)
+            dt = datetime.datetime.fromtimestamp(timestamp / 1000.0, self.tz)
             index.append(dt)
             values.append(row[1])
         res = pd.Series(name=name, index=index, data=values)
@@ -266,7 +274,7 @@ class TS:
         import numpy as np
 
         # Clean up some of the more common Pandas/api problems
-        pd_series = pd_series.astype(np.float64).replace({np.nan: None})
+        pd_series = pd_series.astype(np.float64).replace(np.nan, None)
 
         if not isinstance(pd_series.index, pd.DatetimeIndex):
             raise ValueError("Input series index must be a DatetimeIndex")
@@ -274,28 +282,26 @@ class TS:
         name = pd_series.name
         frequency = TS._rev_map_freq(pd_series.index.freqstr)
 
-        points = []
+        points: list[Point] = []
         for i in pd_series.index:
             t = i.astimezone(ZoneInfo("UTC"))
-            timestamp = int(calendar.timegm(t.timetuple()) * 1000)
+            timestamp = calendar.timegm(t.timetuple()) * 1000
             points.append([timestamp, pd_series[i]])
 
         if name is not None and isinstance(name, str) and name.isnumeric():
             return TS(id=int(name), frequency=frequency, points=points)
-        return TS(name=name, frequency=frequency, points=points)
+        return TS(name=None if name is None else str(name), frequency=frequency, points=points)
 
     @staticmethod
-    def _map_freq(frequency:_TsFreqs|str) -> str:
-        if frequency.upper() in _TS_FREQ_TABLE:
-            frequency = _TS_FREQ_TABLE[frequency.upper()]
-        return frequency
+    def _map_freq(frequency:TsFreq|str) -> str:
+        upper = frequency.upper()
+        return _TS_FREQ_TABLE[upper] if _is_ts_freq(upper) else frequency
 
     @staticmethod
-    def _rev_map_freq(frequency:str)->_TsFreqs:
+    def _rev_map_freq(frequency:str)->TsFreq|str:
         if frequency.upper() in _PANDAS_FREQ_TABLE:
-            frequency = _PANDAS_FREQ_TABLE[frequency.upper()]
-        else:
-            warnings.warn(f"Frequency is not supported: '{frequency}'", FutureWarning, stacklevel=2)
+            return _PANDAS_FREQ_TABLE[frequency.upper()]
+        warnings.warn(f"Frequency is not supported: '{frequency}'", FutureWarning, stacklevel=2)
         return frequency
 
     @staticmethod
@@ -366,10 +372,21 @@ class PairedTS(TS):
     Used for data like price-volume pairs, where each point is a tuple/list.
     """
 
-    tags: Optional[list] = None
+    tags: list[str] | None = None
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        id: int|None = None,
+        name:str|None=None,
+        frequency:TsFreq|str|None=None,
+        time_zone:str|None=None,
+        tag:str|None=None,
+        issue_date:DatetimeLike|None=None,
+        curve_type:TSCurveType|None=None,
+        points:list[Point]|None=None,
+        input_dict:TSPayload|PairedTSPayload|None=None,
+    )->None:
+        super().__init__(id, name, frequency, time_zone, tag, issue_date, curve_type, points, input_dict)
 
         if not isinstance(self.tags, list) or not self.tags:
             raise ValueError(
@@ -388,7 +405,8 @@ class PairedTS(TS):
                 )
 
 
-    def to_pandas(self, name=None) -> pd.DataFrame:
+    @override
+    def to_pandas(self, name: str | None = None) -> pd.DataFrame:  # type: ignore[override]  # returns a DataFrame, TS returns a Series
         """
         Convert the PairedTS object to a pandas.DataFrame.
         Rows = paired points, columns = tags.
@@ -452,7 +470,7 @@ def parsetime(datestr:str, tz:str|datetime.tzinfo|None=None)->datetime.datetime:
     return d
 
 
-def parserange(rangeobj, tz=None)->tuple[datetime.datetime|None, datetime.datetime|None]|None:
+def parserange(rangeobj:DateRange, tz:str|datetime.tzinfo|None=None)->tuple[datetime.datetime|None, datetime.datetime|None]|None:
     """
     Parse a range object (a pair of date strings, which may each be None)
     """
@@ -460,11 +478,10 @@ def parserange(rangeobj, tz=None)->tuple[datetime.datetime|None, datetime.dateti
         return None
     begin = rangeobj.get("begin")
     end = rangeobj.get("end")
-    if begin is not None:
-        begin = parsetime(begin, tz=tz)
-    if end is not None:
-        end = parsetime(end, tz=tz)
-    return (begin, end)
+    return (
+        parsetime(begin, tz=tz) if begin is not None else None,
+        parsetime(end, tz=tz) if end is not None else None,
+    )
 
 
 _tzmap = {
@@ -488,7 +505,7 @@ def parse_tz(time_zone:str)->ZoneInfo:
         return ZoneInfo("CET")
 
 
-def detect_curve_type(issue_date:str|None, tag:str|None)->Literal["TIME_SERIES", "TAGGED", "INSTANCES", "TAGGED_INSTANCES"]:
+def detect_curve_type(issue_date:DatetimeLike|None, tag:str|None)->Literal["TIME_SERIES", "TAGGED", "INSTANCES", "TAGGED_INSTANCES"]:
     if issue_date is None and tag is None:
         return TIME_SERIES
     if issue_date is None:
@@ -498,7 +515,7 @@ def detect_curve_type(issue_date:str|None, tag:str|None)->Literal["TIME_SERIES",
     return TAGGED_INSTANCES
 
 
-def is_integer(s):
+def is_integer(s:str | float)->bool:
     try:
         int(s)
         return True
@@ -506,8 +523,8 @@ def is_integer(s):
         return False
 
 
-def make_arg(key, value):
-    if hasattr(value, "__iter__") and not isinstance(value, str):
+def make_arg(key:str, value:ArgValue)->str:
+    if isinstance(value, Iterable) and not isinstance(value, str):
         return "&".join([make_arg(key, v) for v in value])
 
     tmp = value.isoformat() if isinstance(value, datetime.date) else str(value)

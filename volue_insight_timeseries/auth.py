@@ -7,14 +7,9 @@ from __future__ import annotations
 import json
 import os
 import threading
-from enum import Enum
-
-try:
-    from urllib.parse import urljoin
-except ImportError:
-    from urlparse import urljoin
 import time
-from typing import TYPE_CHECKING, Any
+from enum import StrEnum
+from typing import TYPE_CHECKING
 from urllib.parse import urljoin
 
 if TYPE_CHECKING:
@@ -27,17 +22,13 @@ class AuthFailedException(Exception):
     pass
 
 
-class AuthType(str, Enum):
+class AuthType(StrEnum):
     """
     Supported values for ``auth_type``.
-    Behaves like ``enum.StrEnum``, which is not available in Python 3.10.
     """
 
     OAUTH = 'OAuth'
     VOLUE_IDENTITY = 'VolueIdentity'
-
-    def __str__(self):
-        return self.value
 
 
 class OAuth:
@@ -46,10 +37,10 @@ class OAuth:
     This is the main authentication mechanism for customer access to the data center.
     """
 
-    auth_type = AuthType.OAUTH
-    token_path = '/oauth2/token'
-    scope = None
-    mismatch_hint = ('Check that the client ID and secret are your Volue Data & Forecasts credentials. '
+    auth_type: AuthType = AuthType.OAUTH
+    token_path: str = '/oauth2/token'
+    scope: str | None = None
+    mismatch_hint: str = ('Check that the client ID and secret are your Volue Data & Forecasts credentials. '
                      'If they are Volue Identity credentials, set auth_type = VolueIdentity.')
 
     def __init__(self, session:Session|Asession, client_id:str, client_secret:str, auth_urlbase:str)->None:
@@ -103,7 +94,7 @@ class OAuth:
             if body.get('error_description'):
                 message += f' ({body["error_description"]})'
         except (ValueError, AttributeError):
-            message += f': HTTP {response.status_code} {response.content}'
+            message += f': HTTP {response.status_code} {response.content!r}'
         if error == 'invalid_client':
             message += '. ' + self.mismatch_hint + ' The credentials may also have been revoked or have expired.'
         elif error == 'invalid_scope':
@@ -112,7 +103,7 @@ class OAuth:
             message += '. Check that auth_type and auth_urlbase belong together.'
         return message
 
-    def get_headers(self, data:Any=None)->dict[str,str]:
+    def get_headers(self, data:object=None)->dict[str,str]:
         """The web-token auth header is simple"""
         headers = {}
         if self.token is not None and self.token_type is not None:

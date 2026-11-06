@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import time
 import warnings
 from configparser import RawConfigParser
-from typing import Any, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal, overload
 from urllib.parse import urljoin
 
 import aiohttp
@@ -14,8 +13,26 @@ import aiohttp.web_exceptions
 import requests
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
-from . import auth, curves_async, events, util
-from .util import CurveException, DatetimeLike, _TsFreqs
+from . import auth, curves_async, util
+from .models import (
+    AttributeName,
+    AttributeValue,
+    CurveMetadata,
+    CurveType,
+    DatetimeLike,
+    JSONValue,
+    RawData,
+    TsFreq,
+    is_attribute_values,
+    is_curve_metadata,
+    is_curve_metadata_list,
+)
+from .util import CurveException
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from .events import EventListener
 
 RETRY_COUNT = 4    # Number of times to retry
 RETRY_DELAY = 0.5  # Delay between retried calls, in seconds.
@@ -149,11 +166,15 @@ class Asession:
         """
         if id is not None:
             warnings.warn("Looking up a curve by ID will be removed in the future.", FutureWarning, stacklevel=2)
-        if id is None and name is None:
+        if id is not None:
+            arg = util.make_arg('id', id)
+        elif name is not None:
+            arg = util.make_arg('name', name)
+        else:
             raise MetadataException('No curve specified')
-
-        arg = util.make_arg('id', id) if id is not None else util.make_arg('name', name)
-        response:curves_async.Metadata = await self.data_request('GET', self.urlbase, f'/api/curves/get?{arg}')
+        response = await self.data_request('GET', self.urlbase, f'/api/curves/get?{arg}')
+        if not is_curve_metadata(response):
+            raise MetadataException('Failed to load curve: unexpected response')
         return self._build_curve(response)
 
     async def search(
@@ -170,7 +191,7 @@ class Asession:
         unit:str|list[str]|None=None,
         time_zone:str|list[str]|None=None,
         version:str|list[str]|None=None,
-        frequency:_TsFreqs|list[_TsFreqs]|None=None,
+        frequency:TsFreq|list[TsFreq]|None=None,
         data_type:str|list[str]|None=None,
         curve_state:str|list[str]|None=None,
         modified_since:DatetimeLike|None=None,
@@ -318,124 +339,148 @@ class Asession:
         # Now run the search, and try to produce a list of curves
         response = await self.data_request('GET', self.urlbase, f'/api/curves{astr}')
 
-        metadata_list:list[curves_async.Metadata] = [response] if isinstance(response, dict) else response
-        return [self._build_curve(metadata) for metadata in metadata_list]
+        if is_curve_metadata(response):
+            return [self._build_curve(response)]
+        if not is_curve_metadata_list(response):
+            raise MetadataException('Curve search failed: unexpected response')
+        return [self._build_curve(metadata) for metadata in response]
 
-    def make_curve(self, id:int, curve_type:Literal["TIME_SERIES", "TAGGED", "INSTANCES", "TAGGED_INSTANCES"])->curves_async.curveType:
+    @overload
+    def make_curve(self, id:int, curve_type:Literal["TIME_SERIES"])->curves_async.TimeSeriesCurve: ...
+
+    @overload
+    def make_curve(self, id:int, curve_type:Literal["TAGGED"])->curves_async.TaggedCurve: ...
+
+    @overload
+    def make_curve(self, id:int, curve_type:Literal["INSTANCES"])->curves_async.InstanceCurve: ...
+
+    @overload
+    def make_curve(self, id:int, curve_type:Literal["TAGGED_INSTANCES"])->curves_async.TaggedInstanceCurve: ...
+
+    @overload
+    def make_curve(self, id:int, curve_type:CurveType)->curves_async.curveType: ...
+
+    def make_curve(self, id:int, curve_type:CurveType)->curves_async.curveType:
         """Return a mostly uninitialized curve object of the correct type.
         This is generally a bad idea, use get_curve or search when possible."""
         if curve_type in self._curve_types:
             return self._curve_types[curve_type](id, None, self)
         raise CurveException('Bad curve type requested')
 
-    def events(self, curve_list, start_time=None, timeout=None):
+    def events(
+        self,
+        curve_list:curves_async.BaseCurve|int|Iterable[curves_async.BaseCurve|int],
+        start_time:DatetimeLike|None=None,
+        timeout:float|None=None,
+    )->EventListener:
         """Get an event listener for a list of curves_async."""
-        return events.EventListener(self, curve_list, start_time=start_time, timeout=timeout)
+        # shortcut: EventListener reads the stream with a sync Session, port it to aiohttp before allowing this
+        raise NotImplementedError('Asession does not support events yet, use Session.events')
 
-    _attributes = {'commodities', 'categories', 'areas', 'stations', 'sources', 'scenarios',
+    _attributes: ClassVar[set[str]] = {'commodities', 'categories', 'areas', 'stations', 'sources', 'scenarios',
                    'units', 'time_zones', 'versions', 'frequencies', 'data_types',
                    'curve_states', 'curve_types', 'functions', 'filters'}
 
-    async def get_commodities(self)->list[dict]|dict:
+    async def get_commodities(self)->list[AttributeValue]:
         """
         Get valid values for the commodity attribute
         """
         return await self.get_attribute('commodities')
 
-    async def get_categories(self)->list[dict]|dict:
+    async def get_categories(self)->list[AttributeValue]:
         """
         Get valid values for the category attribute
         """
         return await self.get_attribute('categories')
 
-    async def get_areas(self)->list[dict]|dict:
+    async def get_areas(self)->list[AttributeValue]:
         """
         Get valid values for the area attribute
         """
         return await self.get_attribute('areas')
 
-    async def get_stations(self)->list[dict]|dict:
+    async def get_stations(self)->list[AttributeValue]:
         """
         Get valid values for the station attribute
         """
         return await self.get_attribute('stations')
 
-    async def get_sources(self)->list[dict]|dict:
+    async def get_sources(self)->list[AttributeValue]:
         """
         Get valid values for the source attribute
         """
         return await self.get_attribute('sources')
 
-    async def get_scenarios(self)->list[dict]|dict:
+    async def get_scenarios(self)->list[AttributeValue]:
         """
         Get valid values for the scenarios attribute
         """
         return await self.get_attribute('scenarios')
 
-    async def get_units(self)->list[dict]|dict:
+    async def get_units(self)->list[AttributeValue]:
         """
         Get valid values for the unit attribute
         """
         return await self.get_attribute('units')
 
-    async def get_time_zones(self)->list[dict]|dict:
+    async def get_time_zones(self)->list[AttributeValue]:
         """
         Get valid values for the time zone attribute
         """
         return await self.get_attribute('time_zones')
 
-    async def get_versions(self)->list[dict]|dict:
+    async def get_versions(self)->list[AttributeValue]:
         """
         Get valid values for the version attribute
         """
         return await self.get_attribute('versions')
 
-    async def get_frequencies(self)->list[dict]|dict:
+    async def get_frequencies(self)->list[AttributeValue]:
         """
         Get valid values for the frequency attribute
         """
         return await self.get_attribute('frequencies')
 
-    async def get_data_types(self)->list[dict]|dict:
+    async def get_data_types(self)->list[AttributeValue]:
         """
         Get valid values for the data_type attribute
         """
         return await self.get_attribute('data_types')
 
-    async def get_curve_states(self)->list[dict]|dict:
+    async def get_curve_states(self)->list[AttributeValue]:
         """
         Get valid values for the curve_state attribute
         """
         return await self.get_attribute('curve_states')
 
-    async def get_curve_types(self)->list[dict]|dict:
+    async def get_curve_types(self)->list[AttributeValue]:
         """
         Get valid values for the curve_type attribute
         """
         return await self.get_attribute('curve_types')
 
-    async def get_functions(self)->list[dict]|dict:
+    async def get_functions(self)->list[AttributeValue]:
         """
         Get valid values for the function attribute
         """
         return await self.get_attribute('functions')
 
-    async def get_filters(self)->list[dict]|dict:
+    async def get_filters(self)->list[AttributeValue]:
         """
         Get valid values for the filter attribute
         """
         return await self.get_attribute('filters')
 
-    async def get_attribute(self, attribute:str)->dict|list[dict]:
+    async def get_attribute(self, attribute:AttributeName)->list[AttributeValue]:
         """Get valid values for an attribute."""
         if attribute not in self._attributes:
             raise MetadataException(f'Attribute {attribute} is not valid')
-        return await self.data_request('GET', self.urlbase, f'/api/{attribute}')
-        # if not response:
-        #     return response
-        # return response.json()
+        response = await self.data_request('GET', self.urlbase, f'/api/{attribute}')
+        if not is_attribute_values(response):
+            raise MetadataException(f'Failed loading {attribute}: unexpected response')
+        return response
 
-    _curve_types = {
+    _curve_types: ClassVar[dict[str, type[curves_async.curveType]]] = {
         util.TIME_SERIES:      curves_async.TimeSeriesCurve,
         util.TAGGED:           curves_async.TaggedCurve,
         util.INSTANCES:        curves_async.InstanceCurve,
@@ -444,11 +489,11 @@ class Asession:
 
     _meta_keys = ('id', 'name', 'frequency', 'time_zone', 'curve_type')
 
-    def _build_curve(self, metadata:curves_async.Metadata)->curves_async.curveType:
+    def _build_curve(self, metadata:CurveMetadata)->curves_async.curveType:
         for key in self._meta_keys:
             if key not in metadata:
                 raise MetadataException(f'Mandatory key {key} not found in metadata')
-        curve_id = int(metadata['id'])
+        curve_id = metadata['id']
         if('curve_state' in metadata and metadata['curve_state'] == 'DEPRECATED'):
             warnings.warn("Deprecation warning for curve: {}".format(metadata['name']), DeprecationWarning, stacklevel=4)
         if metadata['curve_type'] in self._curve_types:
@@ -469,14 +514,11 @@ class Asession:
                 time.sleep(RETRY_DELAY)
             return self._get_auth_header_with_retry(retries - 1)
 
-    def _validate_auth(self, data:Any, rawdata:bytes|None)->dict[str,str]:
+    def _validate_auth(self, data:JSONValue, rawdata:RawData|None)->dict[str,str]:
         headers:dict[str,str] = {}
 
         if data is not None or rawdata is not None:
             headers['content-type'] = 'application/json'
-            databytes = data.encode() if isinstance(data, str) else json.dumps(data).encode()
-        if data is None and rawdata is not None:
-            databytes = rawdata
         if self.auth is not None:
             # Beta-feature: Only update auth with retry if explicitly requested
             if self.retry_update_auth:
@@ -493,8 +535,8 @@ class Asession:
         req_type: Literal["GET", "POST"],
         urlbase: str | None,
         url: str,
-        data:Any=None,
-        rawdata:bytes|None=None,
+        data:JSONValue=None,
+        rawdata:RawData|None=None,
         headers:dict[str,str]|None=None,
         authval:tuple[str,str]|None=None,
         stream: bool = False,
@@ -504,7 +546,7 @@ class Asession:
             urlbase = self.urlbase
         longurl = urljoin(urlbase, url)
 
-        databytes = None
+        databytes: RawData | None = None
         if data is not None:
             databytes = data.encode() if isinstance(data, str) else json.dumps(data).encode()
         if data is None and rawdata is not None:
@@ -537,11 +579,11 @@ class Asession:
         req_type: Literal["GET", "POST"],
         urlbase: str,
         url: str,
-        data: Any = None,
-        rawdata: bytes | None = None,
+        data: JSONValue = None,
+        rawdata: RawData | None = None,
         authval:tuple[str,str]|None=None,
         stream: bool = False,
-    ) -> dict|list[dict]:
+    ) -> JSONValue:
         """Run a call to the backend, dealing with authentication etc."""
         headers = self._validate_auth(data, rawdata)
         if self._asession is None:
@@ -550,7 +592,7 @@ class Asession:
             urlbase = self.urlbase
         longurl = urljoin(urlbase, url)
 
-        databytes = None
+        databytes: RawData | None = None
         if data is not None:
             databytes = data.encode() if isinstance(data, str) else json.dumps(data).encode()
         if data is None and rawdata is not None:
@@ -576,6 +618,6 @@ class Asession:
                 if status_code == 400:
                     raise aiohttp.web_exceptions.HTTPBadRequest(reason=response_content["reason"], body=str(response_content))
 
-        except Exception as e:
+        except Exception:
             raise
         return response_content
