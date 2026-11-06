@@ -26,11 +26,12 @@ with open(os.path.join(here, 'volue_insight_timeseries/VERSION')) as fv:
 
 setup(
     name='volue_insight_timeseries',
-    # Supported Python versions policy:
+    # Fork policy: Python 3.12 up to 3.15.
+    # Upstream policy:
     # https://docs.volue.com/data-and-forecasts/volue-insight-timeseries/getting-started/installation#supported-python-versions
-    # No upper cap: a cap makes pip on a newer Python fall back to an old release.
+    # The upper cap makes pip on Python 3.16 or newer fall back to an old release.
     # Raising the minimum drops users on that version, so it needs a major release.
-    python_requires='>=3.9',
+    python_requires='>=3.12,<3.16',
     packages=find_packages(),
     install_requires=extract_requirements('requirements.txt'),
     extras_require={
@@ -57,11 +58,9 @@ setup(
     classifiers=[
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3 :: Only',
-        'Programming Language :: Python :: 3.9',
-        'Programming Language :: Python :: 3.10',
-        'Programming Language :: Python :: 3.11',
         'Programming Language :: Python :: 3.12',
         'Programming Language :: Python :: 3.13',
         'Programming Language :: Python :: 3.14',
+        'Programming Language :: Python :: 3.15',
     ],
 )
