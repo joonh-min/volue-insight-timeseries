@@ -1,4 +1,4 @@
-name: Create Release
+name: "[DISABLED in fork] Create Release"
 
 on:
   workflow_dispatch:
@@ -36,6 +36,12 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
+      # This fork is installed with `pip install git+...` and is never released to PyPI
+      - name: Fail, releases are disabled in this fork
+        run: |
+          echo "Releases are disabled in this fork, install it with pip install git+https://github.com/joonh-min/volue-insight-timeseries.git" >&2
+          exit 1
+
       - name: Validate inputs
         shell: bash
         env:

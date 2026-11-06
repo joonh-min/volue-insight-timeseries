@@ -1,64 +1,62 @@
+from __future__ import annotations
+
 import warnings
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Optional, TypedDict, Union
+from typing import TYPE_CHECKING, ClassVar, Literal, NoReturn, overload, override
 
 from . import util
-
-try:
-    from typing import NotRequired
-except ImportError:
-    from typing_extensions import NotRequired
+from .models import (
+    CurveMetadata,
+    DateRange,
+    DatetimeLike,
+    Duration,
+    FilterType,
+    FunctionType,
+    JSONValue,
+    OneOrMany,
+    TagList,
+    TsFreq,
+    TSPayload,
+    is_date_range_list,
+    is_str_list,
+    is_ts_payload,
+    is_ts_payload_list,
+)
 
 if TYPE_CHECKING:
     from .session import Session
+    from .util import TS
 
-filterType = Union[Literal["PEAK", "OFFPEAK", "OFFPEAK1", "OFFPEAK2", "FUTUREPEAK", "FUTUREOFFPEAK", "WORKDAYS", "WEEKENDS"], str]
-functionType = Union[Literal["AVERAGE", "SAVERAGE", "MAX", "MIN", "SUM", "SSUM", "LAST", "SAME", "DIVIDE"], str]
-
-class Metadata(TypedDict):
-    id: int
-    name: str
-    frequency: util._TsFreqs
-    timezone: str
-    curve_type: Literal["TAGGED_INSTANCES", "INSTANCES", "TAGGED", "TIME_SERIES"]
-    curve_state: Literal["PUBLIC"] | str
-    created: str
-    modified: str
-    issue_frequency: NotRequired[str]
-    area: str
-    categories: list[str]
-    commodity: str
-    unit: str
-    station: NotRequired[str]
-    sources: NotRequired[str]
-    hasAccess: bool
-    accessRange: dict[Literal["begin", "end", "empty"], str|None]
-    data_type: str
-    description: str
+# Kept for backward compatibility, use the names in volue_insight_timeseries_async.models
+filterType = FilterType
+functionType = FunctionType
+Metadata = CurveMetadata
 
 @dataclass
 class BaseCurve:
     id: int
     name: str
-    frequency: str
+    frequency: TsFreq
     time_zone: str
-    curve_type: Literal["TIME_SERIES", "TAGGED", "INSTANCES", "TAGGED_INSTANCES", "UNKNOWN"]
+    # A class constant, each curve class below sets its own value
+    curve_type: ClassVar[Literal["TIME_SERIES", "TAGGED", "INSTANCES", "TAGGED_INSTANCES", "UNKNOWN"]] = "UNKNOWN"
     curve_state: str
-    create: str
+    created: str
     modified: str
-    issue_frequency: Optional[str]
+    issue_frequency: str | None
     area: str
     categories: list[str]
     commodity: str
     unit: str
-    station: Optional[str]
-    sources: Optional[str]
+    station: str | None
+    sources: list[str] | None
+    scenarios: list[str] | None
     hasAccess: bool
-    accessRange: dict[Literal["begin", "end", "empty"], str|None]
+    accessRange: DateRange
     data_type: str
     description: str
 
-    def __init__(self, id:int, metadata:Metadata|None, session:"Session")->None:
+    def __init__(self, id:int, metadata:CurveMetadata|None, session:Session)->None:
         self._metadata = metadata
         self._session = session
         self.time_zone = 'CET'
@@ -70,11 +68,10 @@ class BaseCurve:
                 setattr(self, key, val)
         self.id = id
         self.tz = util.parse_tz(self.time_zone)
-        self.curve_type = getattr(self, 'curve_type', 'UNKNOWN')
 
     def __str__(self)->str:
         name = getattr(self, 'name', str(self.id))
-        return "{}({})".format(self.curve_type, name)
+        return f"{self.curve_type}({name})"
 
     def __repr__(self)->str:
         name = getattr(self, 'name', str(self.id))
@@ -85,19 +82,19 @@ class BaseCurve:
             return msg.format(f", time_zone={self.time_zone}, hasAccess={self.hasAccess}")
         return msg.format("")
 
-    def _add_from_to(self, args:list[str], first:util.DatetimeLike|None, last:util.DatetimeLike|None, prefix:str='')->None:
+    def _add_from_to(self, args:list[str], first:DatetimeLike|None, last:DatetimeLike|None, prefix:str='')->None:
         if first is not None:
-            args.append(util.make_arg('{}from'.format(prefix), first))
+            args.append(util.make_arg(f'{prefix}from', first))
         if last is not None:
-            args.append(util.make_arg('{}to'.format(prefix), last))
+            args.append(util.make_arg(f'{prefix}to', last))
 
     def _add_functions(
         self,
         args: list[str],
         time_zone: str | None,
-        filter: filterType | None,
-        function: functionType | None,
-        frequency: util._TsFreqs | None,
+        filter: FilterType | None,
+        function: FunctionType | None,
+        frequency: TsFreq | None,
         output_time_zone: str | None,
     ) -> None:
         if time_zone is not None:
@@ -111,7 +108,7 @@ class BaseCurve:
         if output_time_zone is not None:
             args.append(util.make_arg('output_time_zone', output_time_zone))
 
-    def _load_data(self, url:str, failmsg:str|None, urlbase:str|None=None)->dict|None:
+    def _load_data(self, url:str, failmsg:str|None, urlbase:str|None=None)->JSONValue:
         urlbase = self._session.urlbase if urlbase is None else urlbase
         response = self._session.data_request('GET', urlbase, url)
         self._last_response = response
@@ -120,25 +117,52 @@ class BaseCurve:
         if response is not None and (response.status_code in {204, 404}):
             return None
         raise util.CurveException(
-            '{}: {} ({})'.format(
-                failmsg, "None" if response is None else response.content, "None" if response is None else response.status_code
+            '{}: {!r} ({})'.format(
+                failmsg, None if response is None else response.content, "None" if response is None else response.status_code
             )
         )
 
-    def access(self)-> dict|None:
+    def access(self) -> list[DateRange] | None:
         url = f'/api/v1/timeseries/curves/{self.id}/access'
-        return self._load_data(url, 'Failed to load curve access')
+        return self._load_date_ranges(url, 'Failed to load curve access')
+
+    def _load_ts(self, url:str, failmsg:str)->TSPayload|None:
+        result = self._load_data(url, failmsg)
+        if result is None or is_ts_payload(result):
+            return result
+        raise util.CurveException(f'{failmsg}: unexpected response')
+
+    def _load_ts_list(self, url:str, failmsg:str)->list[TSPayload]|None:
+        result = self._load_data(url, failmsg)
+        if result is None or is_ts_payload_list(result):
+            return result
+        raise util.CurveException(f'{failmsg}: unexpected response')
+
+    def _load_tags(self, url:str, failmsg:str)->list[str]|None:
+        result = self._load_data(url, failmsg)
+        if result is None or is_str_list(result):
+            return result
+        raise util.CurveException(f'{failmsg}: unexpected response')
+
+    def _load_date_ranges(self, url:str, failmsg:str)->list[DateRange]|None:
+        result = self._load_data(url, failmsg)
+        if result is None or is_date_range_list(result):
+            return result
+        raise util.CurveException(f'{failmsg}: unexpected response')
 
 
 class TimeSeriesCurve(BaseCurve):
+    # Lets type checkers narrow a curve with `curve_type == "TIME_SERIES"`
+    curve_type: ClassVar[Literal["TIME_SERIES"]] = "TIME_SERIES"
+
     def get_data(
         self,
-        data_from: util.DatetimeLike | None = None,
-        data_to: util.DatetimeLike | None = None,
+        data_from: DatetimeLike | None = None,
+        data_to: DatetimeLike | None = None,
         time_zone: str | None = None,
-        filter: filterType | None = None,
-        function: functionType | None = None,
-        frequency: util._TsFreqs | None = None,
+        filter: FilterType | None = None,
+        function: FunctionType | None = None,
+        frequency: TsFreq | None = None,
         output_time_zone: str | None = None,
     )->util.TS|None:
         """ Getting data from Time Series curves
@@ -150,7 +174,7 @@ class TimeSeriesCurve(BaseCurve):
         This can be used with great effect to reduce the amount of data
         retrieved if the full set of details is not needed.
         All time series are returned
-        in a :class:`volue_insight_timeseries.util.TS` object.
+        in a :class:`volue_insight_timeseries_async.util.TS` object.
 
         Parameters
         ----------
@@ -184,23 +208,23 @@ class TimeSeriesCurve(BaseCurve):
             to given "time_zone" here.
 
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_time_zones`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_time_zones`.
 
         filter: str, optional
             only get a specific subset of the data.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_filters`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_filters`.
 
         function: str, optional
             function used to aggregate or split data, must be used together
             with the ``frequency`` parameter.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_functions`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_functions`.
 
         frequency: str, optional
             data will be aggregated or split to the requested frequency using
             the given function. You can find the valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_frequencies`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_frequencies`.
 
         output_time_zone: str, optional
             Change curve time zone AFTER performing an aggregation/split
@@ -208,7 +232,7 @@ class TimeSeriesCurve(BaseCurve):
 
         Returns
         -------
-        :class:`volue_insight_timeseries.util.TS` object
+        :class:`volue_insight_timeseries_async.util.TS` object
         """
 
         args:list[str] = []
@@ -217,15 +241,18 @@ class TimeSeriesCurve(BaseCurve):
         self._add_functions(args, time_zone, filter, function, frequency, output_time_zone)
         if len(args) > 0:
             astr = '?{}'.format('&'.join(args))
-        url = '/api/v1/timeseries/series/{}{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to load curve data')
+        url = f'/api/v1/timeseries/series/{self.id}{astr}'
+        result = self._load_ts(url, 'Failed to load curve data')
         if result is None:
             return result
         return util.TS(input_dict=result, curve_type=util.TIME_SERIES)
 
 
 class TaggedCurve(BaseCurve):
-    def get_tags(self)->dict|None:
+    # Lets type checkers narrow a curve with `curve_type == "TAGGED"`
+    curve_type: ClassVar[Literal["TAGGED"]] = "TAGGED"
+
+    def get_tags(self) -> list[str] | None:
         """ Get list of available tags for this curve
 
         Returns
@@ -233,11 +260,44 @@ class TaggedCurve(BaseCurve):
         list
             Returns a list of all available tags for a Tagged Instance curve.
         """
-        url = '/api/v1/timeseries/series/tagged/{}/tags'.format(self.id)
-        return self._load_data(url, 'Failed to fetch tags')
+        url = f'/api/v1/timeseries/series/tagged/{self.id}/tags'
+        return self._load_tags(url, 'Failed to fetch tags')
 
-    def get_data(self, tag=None, data_from=None, data_to=None, time_zone=None, filter=None,
-                 function=None, frequency=None, output_time_zone=None):
+    @overload
+    def get_data(
+        self,
+        tag: TagList,
+        data_from: DatetimeLike | None = None,
+        data_to: DatetimeLike | None = None,
+        time_zone: str | None = None,
+        filter: FilterType | None = None,
+        function: FunctionType | None = None,
+        frequency: TsFreq | None = None,
+        output_time_zone: str | None = None,
+    ) -> list[TS] | None: ...
+    @overload
+    def get_data(
+        self,
+        tag: str | None = None,
+        data_from: DatetimeLike | None = None,
+        data_to: DatetimeLike | None = None,
+        time_zone: str | None = None,
+        filter: FilterType | None = None,
+        function: FunctionType | None = None,
+        frequency: TsFreq | None = None,
+        output_time_zone: str | None = None,
+    ) -> TS | list[TS] | None: ...
+    def get_data(
+        self,
+        tag: str | TagList | None = None,
+        data_from: DatetimeLike | None = None,
+        data_to: DatetimeLike | None = None,
+        time_zone: str | None = None,
+        filter: FilterType | None = None,
+        function: FunctionType | None = None,
+        frequency: TsFreq | None = None,
+        output_time_zone: str | None = None,
+    ) -> TS | list[TS] | None:
         """ Getting data from TAGGED curves
 
         A tagged curve holds a set of closely related time series, each
@@ -245,12 +305,12 @@ class TaggedCurve(BaseCurve):
         weather data.
 
         This function fetches data for one or multiple given tags and returns
-        a list of :class:`volue_insight_timeseries.util.TS` objects.
+        a list of :class:`volue_insight_timeseries_async.util.TS` objects.
         It is also possible to process the curve directly in the API using filter
         and aggregation functions. This can be used with great effect to reduce
         the amount of data retrieved if the full set of details is not needed.
         All time series are returned
-        in a :class:`volue_insight_timeseries.util.TS` object.
+        in a :class:`volue_insight_timeseries_async.util.TS` object.
 
         Parameters
         ----------
@@ -259,7 +319,7 @@ class TaggedCurve(BaseCurve):
             tag or tags to get the data for. If omitted, the default
             tag is returned. If a list of multiple tags is given, the function
             will return a list with
-            a :class:`volue_insight_timeseries.util.TS` object for each tag.
+            a :class:`volue_insight_timeseries_async.util.TS` object for each tag.
 
         data_from: time-stamp, optional
             start date (and time) of data to be fetched. If not given, the start
@@ -290,24 +350,24 @@ class TaggedCurve(BaseCurve):
             to given "time_zone" here.
 
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_time_zones`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_time_zones`.
 
         filter: str, optional
             only get a specific subset of the data.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_filters` :
+            :meth:`volue_insight_timeseries_async.session.Session.get_filters` :
 
         function: str, optional
             function used to aggregate or split data, must be used together
             with the ``frequency`` parameter.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_functions` :
+            :meth:`volue_insight_timeseries_async.session.Session.get_functions` :
 
         frequency: str, optional
             data will be aggregated or split to the requested frequency using
             the given function.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_frequencies`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_frequencies`.
 
         output_time_zone: str, optional
             Change curve time zone AFTER performing an aggregation/split
@@ -315,11 +375,11 @@ class TaggedCurve(BaseCurve):
 
         Returns
         -------
-        :class:`volue_insight_timeseries.util.TS` object
+        :class:`volue_insight_timeseries_async.util.TS` object
         """
         unwrap = False
         if tag is None:
-            args = []
+            args: list[str] = []
             unwrap = True
         else:
             if isinstance(tag, str):
@@ -328,35 +388,53 @@ class TaggedCurve(BaseCurve):
         self._add_from_to(args, data_from, data_to)
         self._add_functions(args, time_zone, filter, function, frequency, output_time_zone)
         astr = '&'.join(args)
-        url = '/api/v1/timeseries/series/tagged/{}?{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to load tagged curve data')
+        url = f'/api/v1/timeseries/series/tagged/{self.id}?{astr}'
+        result = self._load_ts_list(url, 'Failed to load tagged curve data')
         if result is None:
             return result
         res = [util.TS(input_dict=r, curve_type=util.TAGGED) for r in result]
         if unwrap and len(res) == 1:
-            res = res[0]
+            return res[0]
         return res
 
 
 class InstanceCurve(BaseCurve):
-    def search_instances(self, issue_date_from=None, issue_date_to=None,
-                         issue_dates=None, issue_weekdays=None, issue_days=None, issue_months=None,
-                         issue_times=None, with_data=False, data_from=None, data_to=None,
-                         time_zone=None, filter=None, function=None, frequency=None,
-                         output_time_zone=None, only_accessible=None, modified_since=None):
+    # Lets type checkers narrow a curve with `curve_type == "INSTANCES"`
+    curve_type: ClassVar[Literal["INSTANCES"]] = "INSTANCES"
+
+    def search_instances(
+        self,
+        issue_date_from: DatetimeLike | None = None,
+        issue_date_to: DatetimeLike | None = None,
+        issue_dates: OneOrMany[DatetimeLike] | None = None,
+        issue_weekdays: OneOrMany[str] | None = None,
+        issue_days: OneOrMany[int] | None = None,
+        issue_months: OneOrMany[str] | None = None,
+        issue_times: OneOrMany[str] | None = None,
+        with_data: bool = False,
+        data_from: DatetimeLike | None = None,
+        data_to: DatetimeLike | None = None,
+        time_zone: str | None = None,
+        filter: FilterType | None = None,
+        function: FunctionType | None = None,
+        frequency: TsFreq | None = None,
+        output_time_zone: str | None = None,
+        only_accessible: bool | None = None,
+        modified_since: DatetimeLike | None = None,
+    ) -> list[TS] | None:
         """ Getting data from INSTANCE curves for multiple issue_dates
 
         An INSTANCE curve typically represents forecast,
         and contains a time series for each issue_date of the forecast.
         This function returns a list of time series for all available
         issue_dates (within a given period, if specified)
-        as a a list of :class:`volue_insight_timeseries.util.TS` objects.
+        as a a list of :class:`volue_insight_timeseries_async.util.TS` objects.
         It also possible to process
         the curve directly in the API using filter and aggregation functions.
         This can be used with great effect to reduce the amount of data
         retrieved if the full set of details is not needed.
         By default this function returns
-        the :class:`volue_insight_timeseries.util.TS` objects
+        the :class:`volue_insight_timeseries_async.util.TS` objects
         without data, which can be change by setting the "with_data" argument
         to True.
 
@@ -379,7 +457,7 @@ class InstanceCurve(BaseCurve):
 
         issue_dates: list of time-stamps, optional
             List of timestamps
-            to return :class:`volue_insight_timeseries.util.TS` objects for.
+            to return :class:`volue_insight_timeseries_async.util.TS` objects for.
             The time-stamps can be provided in the same types as
             "issue_date_from".
 
@@ -398,7 +476,7 @@ class InstanceCurve(BaseCurve):
 
         with_data: bool, optional
             If with_data is False,
-            the returned :class:`volue_insight_timeseries.util.TS` object
+            the returned :class:`volue_insight_timeseries_async.util.TS` object
             only contains the attributes and meta data information but no
             data values.
 
@@ -426,24 +504,24 @@ class InstanceCurve(BaseCurve):
             to given "time_zone" here.
 
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_time_zones`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_time_zones`.
 
         filter: str, optional
             only get a specific subset of the data.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_filters` :
+            :meth:`volue_insight_timeseries_async.session.Session.get_filters` :
 
         function: str, optional
             function used to aggregate or split data, must be used together
             with the ``frequency`` parameter.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_functions` :
+            :meth:`volue_insight_timeseries_async.session.Session.get_functions` :
 
         frequency: str, optional
             data will be aggregated or split to the requested frequency using
             the given function.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_frequencies`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_frequencies`.
 
         output_time_zone: str, optional
             Change curve time zone AFTER performing an aggregation/split
@@ -454,11 +532,11 @@ class InstanceCurve(BaseCurve):
 
         Returns
         -------
-        :class:`volue_insight_timeseries.util.TS` object
+        :class:`volue_insight_timeseries_async.util.TS` object
         """
         if only_accessible is not None:
             warnings.warn("only_accessible parameter will be removed soon.", FutureWarning, stacklevel=2)
-        args=[util.make_arg('with_data', '{}'.format(with_data).lower())]
+        args=[util.make_arg('with_data', f'{with_data}'.lower())]
         self._add_from_to(args, issue_date_from, issue_date_to, prefix='issue_date_')
         if with_data:
             self._add_from_to(args, data_from, data_to, prefix='data_')
@@ -476,21 +554,31 @@ class InstanceCurve(BaseCurve):
         if modified_since is not None:
             args.append(util.make_arg('modified_since', modified_since))
         astr = '&'.join(args)
-        url = '/api/v1/timeseries/instances/{}?{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to find instances')
+        url = f'/api/v1/timeseries/instances/{self.id}?{astr}'
+        result = self._load_ts_list(url, 'Failed to find instances')
         if result is None:
             return result
         return [util.TS(input_dict=r, curve_type=util.INSTANCES) for r in result]
 
-    def get_instance(self, issue_date, with_data=True, data_from=None, data_to=None,
-                     time_zone=None, filter=None, function=None, frequency=None,
-                     output_time_zone=None, only_accessible=None):
+    def get_instance(
+        self,
+        issue_date: DatetimeLike,
+        with_data: bool = True,
+        data_from: DatetimeLike | None = None,
+        data_to: DatetimeLike | None = None,
+        time_zone: str | None = None,
+        filter: FilterType | None = None,
+        function: FunctionType | None = None,
+        frequency: TsFreq | None = None,
+        output_time_zone: str | None = None,
+        only_accessible: bool | None = None,
+    ) -> TS | None:
         """ Getting data from INSTANCE curves for a specific issue_date
 
         An INSTANCE curve typically represents forecast,
         and contains a time series for each issue_date of the forecast.
         This function returns the time series for a specified issue_date
-        as a :class:`volue_insight_timeseries.util.TS` object.
+        as a :class:`volue_insight_timeseries_async.util.TS` object.
         It is also possible to process
         the curve directly in the API using filter and aggregation functions.
         This can be used with great effect to reduce the amount of data
@@ -509,7 +597,7 @@ class InstanceCurve(BaseCurve):
 
         with_data: bool, optional
             If with_data is False,
-            the returned :class:`volue_insight_timeseries.util.TS` object
+            the returned :class:`volue_insight_timeseries_async.util.TS` object
             only contains the attributes and meta data information but no
             data values.
 
@@ -537,24 +625,24 @@ class InstanceCurve(BaseCurve):
             to given "time_zone" here.
 
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_time_zones`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_time_zones`.
 
         filter: str, optional
             only get a specific subset of the data.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_filters` :
+            :meth:`volue_insight_timeseries_async.session.Session.get_filters` :
 
         function: str, optional
             function used to aggregate or split data, must be used together
             with the ``frequency`` parameter.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_functions` :
+            :meth:`volue_insight_timeseries_async.session.Session.get_functions` :
 
         frequency: str, optional
             data will be aggregated or split to the requested frequency using
             the given function.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_frequencies`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_frequencies`.
 
         output_time_zone: str, optional
             Change curve time zone AFTER performing an aggregation/split
@@ -562,32 +650,44 @@ class InstanceCurve(BaseCurve):
 
         Returns
         -------
-        :class:`volue_insight_timeseries.util.TS` object
+        :class:`volue_insight_timeseries_async.util.TS` object
         """
         if only_accessible is not None:
             warnings.warn("only_accessible parameter will be removed soon.", FutureWarning, stacklevel=2)
-        args=[util.make_arg('with_data', '{}'.format(with_data).lower()),
+        args=[util.make_arg('with_data', f'{with_data}'.lower()),
               util.make_arg('issue_date', issue_date)]
         if with_data:
             self._add_from_to(args, data_from, data_to)
             self._add_functions(args, time_zone, filter, function, frequency, output_time_zone)
         astr = '&'.join(args)
-        url = '/api/v1/timeseries/instances/{}/at?{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to load instance')
+        url = f'/api/v1/timeseries/instances/{self.id}/at?{astr}'
+        result = self._load_ts(url, 'Failed to load instance')
         if result is None:
             return result
         return util.TS(input_dict=result, issue_date=issue_date, curve_type=util.INSTANCES)
 
-    def get_latest(self, issue_date_from=None, issue_date_to=None, issue_dates=None,
-                   with_data=True, data_from=None, data_to=None, time_zone=None, filter=None,
-                   function=None, frequency=None, output_time_zone=None, only_accessible=None):
+    def get_latest(
+        self,
+        issue_date_from: DatetimeLike | None = None,
+        issue_date_to: DatetimeLike | None = None,
+        issue_dates: OneOrMany[DatetimeLike] | None = None,
+        with_data: bool = True,
+        data_from: DatetimeLike | None = None,
+        data_to: DatetimeLike | None = None,
+        time_zone: str | None = None,
+        filter: FilterType | None = None,
+        function: FunctionType | None = None,
+        frequency: TsFreq | None = None,
+        output_time_zone: str | None = None,
+        only_accessible: bool | None = None,
+    ) -> TS | None:
         """ Getting data from INSTANCE curves for the latest available issue_date
 
         An INSTANCE curve typically represents forecast,
         and contains a time series for each issue_date of the forecast.
         This function returns the time series for the latest available
         issue_date (within a given period, if specified)
-        as a :class:`volue_insight_timeseries.util.TS` object.
+        as a :class:`volue_insight_timeseries_async.util.TS` object.
         It is also possible to process
         the curve directly in the API using filter and aggregation functions.
         This can be used with great effect to reduce the amount of data
@@ -618,7 +718,7 @@ class InstanceCurve(BaseCurve):
 
         with_data: bool, optional
             If with_data is False,
-            the returned :class:`volue_insight_timeseries.util.TS` object
+            the returned :class:`volue_insight_timeseries_async.util.TS` object
             only contains the attributes and meta data information but no
             data values.
 
@@ -646,24 +746,24 @@ class InstanceCurve(BaseCurve):
             to given "time_zone" here.
 
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_time_zones`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_time_zones`.
 
         filter: str, optional
             only get a specific subset of the data.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_filters` :
+            :meth:`volue_insight_timeseries_async.session.Session.get_filters` :
 
         function: str, optional
             function used to aggregate or split data, must be used together
             with the ``frequency`` parameter.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_functions` :
+            :meth:`volue_insight_timeseries_async.session.Session.get_functions` :
 
         frequency: str, optional
             data will be aggregated or split to the requested frequency using
             the given function.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_frequencies`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_frequencies`.
 
         output_time_zone: str, optional
             Change curve time zone AFTER performing an aggregation/split
@@ -671,11 +771,11 @@ class InstanceCurve(BaseCurve):
 
         Returns
         -------
-        :class:`volue_insight_timeseries.util.TS` object
+        :class:`volue_insight_timeseries_async.util.TS` object
         """
         if only_accessible is not None:
             warnings.warn("only_accessible parameter will be removed soon.", FutureWarning, stacklevel=2)
-        args=[util.make_arg('with_data', '{}'.format(with_data).lower())]
+        args=[util.make_arg('with_data', f'{with_data}'.lower())]
         self._add_from_to(args, issue_date_from, issue_date_to, prefix='issue_date_')
         if with_data:
             self._add_from_to(args, data_from, data_to, prefix='data_')
@@ -683,16 +783,31 @@ class InstanceCurve(BaseCurve):
         if issue_dates is not None:
             args.append(util.make_arg('issue_date', issue_dates))
         astr = '&'.join(args)
-        url = '/api/v1/timeseries/instances/{}/latest?{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to load instance')
+        url = f'/api/v1/timeseries/instances/{self.id}/latest?{astr}'
+        result = self._load_ts(url, 'Failed to load instance')
         if result is None:
             return result
         return util.TS(input_dict=result, curve_type=util.INSTANCES)
 
-    def get_relative(self, data_offset, data_max_length=None, issue_date_from=None, issue_date_to=None,
-                     issue_dates=None, issue_weekdays=None, issue_days=None, issue_months=None, issue_times=None,
-                     data_from=None, data_to=None, time_zone=None, filter=None, function=None,
-                     frequency=None, output_time_zone=None):
+    def get_relative(
+        self,
+        data_offset: Duration,
+        data_max_length: Duration | None = None,
+        issue_date_from: DatetimeLike | None = None,
+        issue_date_to: DatetimeLike | None = None,
+        issue_dates: OneOrMany[DatetimeLike] | None = None,
+        issue_weekdays: OneOrMany[str] | None = None,
+        issue_days: OneOrMany[int] | None = None,
+        issue_months: OneOrMany[str] | None = None,
+        issue_times: OneOrMany[str] | None = None,
+        data_from: DatetimeLike | None = None,
+        data_to: DatetimeLike | None = None,
+        time_zone: str | None = None,
+        filter: FilterType | None = None,
+        function: FunctionType | None = None,
+        frequency: TsFreq | None = None,
+        output_time_zone: str | None = None,
+    ) -> TS | None:
         """ Get a relative forecast from the INSTANCE curve
 
         A relative forecast is a time series created by joining multiple
@@ -773,24 +888,24 @@ class InstanceCurve(BaseCurve):
             to given "time_zone" here.
 
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_time_zones`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_time_zones`.
 
         filter: str, optional
             only get a specific subset of the data.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_filters` :
+            :meth:`volue_insight_timeseries_async.session.Session.get_filters` :
 
         function: str, optional
             function used to aggregate or split data, must be used together
             with the ``frequency`` parameter.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_functions` :
+            :meth:`volue_insight_timeseries_async.session.Session.get_functions` :
 
         frequency: str, optional
             data will be aggregated or split to the requested frequency using
             the given function.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_frequencies`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_frequencies`.
 
         output_time_zone: str, optional
             Change curve time zone AFTER performing an aggregation/split
@@ -798,9 +913,9 @@ class InstanceCurve(BaseCurve):
 
         Returns
         -------
-        :class:`volue_insight_timeseries.util.TS` object
+        :class:`volue_insight_timeseries_async.util.TS` object
         """
-        args = [util.make_arg('data_offset', '{}'.format(data_offset))]
+        args = [util.make_arg('data_offset', f'{data_offset}')]
         self._add_from_to(args, issue_date_from, issue_date_to, prefix='issue_date_')
         self._add_from_to(args, data_from, data_to, prefix='data_')
         self._add_functions(args, time_zone, filter, function, frequency, output_time_zone)
@@ -817,13 +932,19 @@ class InstanceCurve(BaseCurve):
         if issue_times is not None:
             args.append(util.make_arg('issue_time', issue_times))
         astr = '&'.join(args)
-        url = '/api/v1/timeseries/instances/{}/relative?{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to find instances')
+        url = f'/api/v1/timeseries/instances/{self.id}/relative?{astr}'
+        result = self._load_ts(url, 'Failed to find instances')
         if result is None:
             return result
         return util.TS(input_dict=result, curve_type=util.INSTANCES)
 
-    def get_absolute(self, data_date, issue_frequency=None, issue_date_from=None, issue_date_to=None):
+    def get_absolute(
+        self,
+        data_date: DatetimeLike,
+        issue_frequency: TsFreq | None = None,
+        issue_date_from: DatetimeLike | None = None,
+        issue_date_to: DatetimeLike | None = None,
+    ) -> TS | None:
         """ Get an absolute forecast from the INSTANCE curve
 
         An absolute forecast is a time series created by selecting a single
@@ -848,7 +969,7 @@ class InstanceCurve(BaseCurve):
             returned for those instances whose issue_date is compatible
             with issue_frequency.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_frequencies`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_frequencies`.
 
         issue_date_from: time-stamp, optional
             The start of the timerange used to select instances.
@@ -862,22 +983,25 @@ class InstanceCurve(BaseCurve):
 
         Returns
         -------
-        :class:`volue_insight_timeseries.util.TS` object
+        :class:`volue_insight_timeseries_async.util.TS` object
         """
         args = [util.make_arg('data_date', data_date)]
         if issue_frequency is not None:
             args.append(util.make_arg('issue_frequency', issue_frequency))
         self._add_from_to(args, issue_date_from, issue_date_to, prefix='issue_date_')
         astr = '&'.join(args)
-        url = '/api/v1/timeseries/instances/{}/absolute?{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to find instances')
+        url = f'/api/v1/timeseries/instances/{self.id}/absolute?{astr}'
+        result = self._load_ts(url, 'Failed to find instances')
         if result is None:
             return result
         return util.TS(input_dict=result, curve_type=util.INSTANCES)
 
 
 class TaggedInstanceCurve(BaseCurve):
-    def get_tags(self):
+    # Lets type checkers narrow a curve with `curve_type == "TAGGED_INSTANCES"`
+    curve_type: ClassVar[Literal["TAGGED_INSTANCES"]] = "TAGGED_INSTANCES"
+
+    def get_tags(self) -> list[str] | None:
         """ Get list of available tags for this curve
 
         Returns
@@ -885,14 +1009,30 @@ class TaggedInstanceCurve(BaseCurve):
         list
             Returns a list of all available tags for a Tagged Instance curve.
         """
-        url = '/api/v1/timeseries/instances/tagged/{}/tags'.format(self.id)
-        return self._load_data(url, 'Failed to fetch tags')
+        url = f'/api/v1/timeseries/instances/tagged/{self.id}/tags'
+        return self._load_tags(url, 'Failed to fetch tags')
 
-    def search_instances(self, tags=None, issue_date_from=None, issue_date_to=None,
-                         issue_dates=None, issue_weekdays=None, issue_days=None, issue_months=None,
-                         issue_times=None, with_data=False, data_from=None, data_to=None,
-                         time_zone=None, filter=None, function=None, frequency=None,
-                         output_time_zone=None, only_accessible=None, modified_since=None):
+    def search_instances(
+        self,
+        tags: OneOrMany[str] | None = None,
+        issue_date_from: DatetimeLike | None = None,
+        issue_date_to: DatetimeLike | None = None,
+        issue_dates: OneOrMany[DatetimeLike] | None = None,
+        issue_weekdays: OneOrMany[str] | None = None,
+        issue_days: OneOrMany[int] | None = None,
+        issue_months: OneOrMany[str] | None = None,
+        issue_times: OneOrMany[str] | None = None,
+        with_data: bool = False,
+        data_from: DatetimeLike | None = None,
+        data_to: DatetimeLike | None = None,
+        time_zone: str | None = None,
+        filter: FilterType | None = None,
+        function: FunctionType | None = None,
+        frequency: TsFreq | None = None,
+        output_time_zone: str | None = None,
+        only_accessible: bool | None = None,
+        modified_since: DatetimeLike | None = None,
+    ) -> list[TS] | None:
         """ Getting data from TAGGED_INSTANCE curves for multiple issue_dates
 
         A TAGGED INSTANCE curve typically represents forecast that contain
@@ -904,13 +1044,13 @@ class TaggedInstanceCurve(BaseCurve):
         This function returns a list of time series for all available
         issue_dates (within a given period, if specified) and tags (from a
         given list of tags, if specified) as
-        a list of :class:`volue_insight_timeseries.util.TS` objects.
+        a list of :class:`volue_insight_timeseries_async.util.TS` objects.
 
         It is also possible to process the curve directly in the API using filter
         and aggregation functions. This can be used with great effect to reduce
         the amount of data retrieved if the full set of details is not needed.
         By default, this function returns
-        the :class:`volue_insight_timeseries.util.TS` objects
+        the :class:`volue_insight_timeseries_async.util.TS` objects
         without data, which can be change by setting the "with_data" argument
         to True.
 
@@ -938,7 +1078,7 @@ class TaggedInstanceCurve(BaseCurve):
 
         issue_dates: list of time-stamps, optional
             List of timestamps to
-            return :class:`volue_insight_timeseries.util.TS` objects for.
+            return :class:`volue_insight_timeseries_async.util.TS` objects for.
             The time-stamps can be provided in the same types as
             "issue_date_from".
 
@@ -957,7 +1097,7 @@ class TaggedInstanceCurve(BaseCurve):
 
         with_data: bool, optional
             If with_data is False,
-            the returned :class:`volue_insight_timeseries.util.TS` object
+            the returned :class:`volue_insight_timeseries_async.util.TS` object
             only contains the attributes and meta data information but no
             data values.
 
@@ -985,24 +1125,24 @@ class TaggedInstanceCurve(BaseCurve):
             to given "time_zone" here.
 
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_time_zones`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_time_zones`.
 
         filter: str, optional
             only get a specific subset of the data.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_filters` :
+            :meth:`volue_insight_timeseries_async.session.Session.get_filters` :
 
         function: str, optional
             function used to aggregate or split data, must be used together
             with the ``frequency`` parameter.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_functions` :
+            :meth:`volue_insight_timeseries_async.session.Session.get_functions` :
 
         frequency: str, optional
             data will be aggregated or split to the requested frequency using
             the given function.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_frequencies`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_frequencies`.
 
         output_time_zone: str, optional
             Change curve time zone AFTER performing an aggregation/split
@@ -1013,11 +1153,11 @@ class TaggedInstanceCurve(BaseCurve):
 
         Returns
         -------
-        :class:`volue_insight_timeseries.util.TS` object
+        :class:`volue_insight_timeseries_async.util.TS` object
         """
         if only_accessible is not None:
             warnings.warn("only_accessible parameter will be removed soon.", FutureWarning, stacklevel=2)
-        args=[util.make_arg('with_data', '{}'.format(with_data).lower())]
+        args=[util.make_arg('with_data', f'{with_data}'.lower())]
         if tags is not None:
             args.append(util.make_arg('tag', tags))
         self._add_from_to(args, issue_date_from, issue_date_to, prefix='issue_date_')
@@ -1037,15 +1177,56 @@ class TaggedInstanceCurve(BaseCurve):
         if modified_since is not None:
             args.append(util.make_arg('modified_since', modified_since))
         astr = '&'.join(args)
-        url = '/api/v1/timeseries/instances/tagged/{}?{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to find tagged instances')
+        url = f'/api/v1/timeseries/instances/tagged/{self.id}?{astr}'
+        result = self._load_ts_list(url, 'Failed to find tagged instances')
         if result is None:
             return result
         return [util.TS(input_dict=r, curve_type=util.TAGGED_INSTANCES) for r in result]
 
-    def get_instance(self, issue_date, tag=None, with_data=True, data_from=None, data_to=None,
-                     time_zone=None, filter=None, function=None, frequency=None,
-                     output_time_zone=None, only_accessible=None):
+    @overload
+    def get_instance(
+        self,
+        issue_date: DatetimeLike,
+        tag: TagList,
+        with_data: bool = True,
+        data_from: DatetimeLike | None = None,
+        data_to: DatetimeLike | None = None,
+        time_zone: str | None = None,
+        filter: FilterType | None = None,
+        function: FunctionType | None = None,
+        frequency: TsFreq | None = None,
+        output_time_zone: str | None = None,
+        only_accessible: bool | None = None,
+    ) -> list[TS] | None: ...
+    @overload
+    def get_instance(
+        self,
+        issue_date: DatetimeLike,
+        tag: str | None = None,
+        with_data: bool = True,
+        data_from: DatetimeLike | None = None,
+        data_to: DatetimeLike | None = None,
+        time_zone: str | None = None,
+        filter: FilterType | None = None,
+        function: FunctionType | None = None,
+        frequency: TsFreq | None = None,
+        output_time_zone: str | None = None,
+        only_accessible: bool | None = None,
+    ) -> TS | list[TS] | None: ...
+    def get_instance(
+        self,
+        issue_date: DatetimeLike,
+        tag: str | TagList | None = None,
+        with_data: bool = True,
+        data_from: DatetimeLike | None = None,
+        data_to: DatetimeLike | None = None,
+        time_zone: str | None = None,
+        filter: FilterType | None = None,
+        function: FunctionType | None = None,
+        frequency: TsFreq | None = None,
+        output_time_zone: str | None = None,
+        only_accessible: bool | None = None,
+    ) -> TS | list[TS] | None:
         """ Getting data from TAGGED_INSTANCE curves for a specific issue_date
 
         A TAGGED INSTANCE curve typically represents forecast that contain
@@ -1056,7 +1237,7 @@ class TaggedInstanceCurve(BaseCurve):
 
         This function returns a time series for the combinations of a specified
         issue_date and all given tags as
-        a list of :class:`volue_insight_timeseries.util.TS` objects.
+        a list of :class:`volue_insight_timeseries_async.util.TS` objects.
         It is also possible to process the curve directly in the API using filter
         and aggregation functions. This can be used with great effect to reduce
         the amount of data retrieved if the full set of details is not needed.
@@ -1076,12 +1257,12 @@ class TaggedInstanceCurve(BaseCurve):
         tag: str or list, optional
             tag or tags to get the data for. If omitted, the default
             tag is returned. If a list of multiple tags is given, the function
-            will return a list with a :class:`volue_insight_timeseries.util.TS`
+            will return a list with a :class:`volue_insight_timeseries_async.util.TS`
             object for each tag.
 
         with_data: bool, optional
             If with_data is False,
-            the returned :class:`volue_insight_timeseries.util.TS` object
+            the returned :class:`volue_insight_timeseries_async.util.TS` object
             only contains the attributes and meta data information but no
             data values.
 
@@ -1109,24 +1290,24 @@ class TaggedInstanceCurve(BaseCurve):
             to given "time_zone" here.
 
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_time_zones`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_time_zones`.
 
         filter: str, optional
             only get a specific subset of the data.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_filters` :
+            :meth:`volue_insight_timeseries_async.session.Session.get_filters` :
 
         function: str, optional
             function used to aggregate or split data, must be used together
             with the ``frequency`` parameter.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_functions` :
+            :meth:`volue_insight_timeseries_async.session.Session.get_functions` :
 
         frequency: str, optional
             data will be aggregated or split to the requested frequency using
             the given function.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_frequencies`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_frequencies`.
 
         output_time_zone: str, optional
             Change curve time zone AFTER performing an aggregation/split
@@ -1134,12 +1315,12 @@ class TaggedInstanceCurve(BaseCurve):
 
         Returns
         -------
-        :class:`volue_insight_timeseries.util.TS` object
+        :class:`volue_insight_timeseries_async.util.TS` object
         """
 
         if only_accessible is not None:
             warnings.warn("only_accessible parameter will be removed soon.", FutureWarning, stacklevel=2)
-        args=[util.make_arg('with_data', '{}'.format(with_data).lower()),
+        args=[util.make_arg('with_data', f'{with_data}'.lower()),
               util.make_arg('issue_date', issue_date)]
         unwrap = False
         if tag is None:
@@ -1152,18 +1333,31 @@ class TaggedInstanceCurve(BaseCurve):
             self._add_from_to(args, data_from, data_to)
             self._add_functions(args, time_zone, filter, function, frequency, output_time_zone)
         astr = '&'.join(args)
-        url = '/api/v1/timeseries/instances/tagged/{}/at?{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to load tagged instance')
+        url = f'/api/v1/timeseries/instances/tagged/{self.id}/at?{astr}'
+        result = self._load_ts_list(url, 'Failed to load tagged instance')
         if result is None:
             return result
         res = [util.TS(input_dict=r, issue_date=issue_date, curve_type=util.TAGGED_INSTANCES) for r in result]
         if unwrap and len(res) == 1:
-            res = res[0]
+            return res[0]
         return res
 
-    def get_latest(self, tags=None, issue_date_from=None, issue_date_to=None, issue_dates=None,
-                   with_data=True, data_from=None, data_to=None, time_zone=None, filter=None,
-                   function=None, frequency=None, output_time_zone=None, only_accessible=None):
+    def get_latest(
+        self,
+        tags: OneOrMany[str] | None = None,
+        issue_date_from: DatetimeLike | None = None,
+        issue_date_to: DatetimeLike | None = None,
+        issue_dates: OneOrMany[DatetimeLike] | None = None,
+        with_data: bool = True,
+        data_from: DatetimeLike | None = None,
+        data_to: DatetimeLike | None = None,
+        time_zone: str | None = None,
+        filter: FilterType | None = None,
+        function: FunctionType | None = None,
+        frequency: TsFreq | None = None,
+        output_time_zone: str | None = None,
+        only_accessible: bool | None = None,
+    ) -> TS | None:
         """ Getting data from TAGGED INSTANCE curves for the latest issue_date
 
         A TAGGED INSTANCE curve typically represents forecasts that contain
@@ -1174,7 +1368,7 @@ class TaggedInstanceCurve(BaseCurve):
 
         This function returns the time series for ONE tag and the latest
         available issue_date (within a given period, if specified)
-        as :class:`volue_insight_timeseries.util.TS` objects. The tag to get the
+        as :class:`volue_insight_timeseries_async.util.TS` objects. The tag to get the
         data for can be specified in the "tags" argument. If None (=all tags)
         or a list of tags is provided, only the timeseries for one of the tags
         (the first one found to have valid data) is returned. So it is
@@ -1189,7 +1383,7 @@ class TaggedInstanceCurve(BaseCurve):
         ----------
         tags: string or list, optional
             tag or list of tags to consider when returning the
-            :class:`volue_insight_timeseries.util.TS` object.
+            :class:`volue_insight_timeseries_async.util.TS` object.
             The function returns a timeseries
             for ONE of the given tags. If you want get data for a specific tag,
             only specify one tag here (recommended!).
@@ -1216,7 +1410,7 @@ class TaggedInstanceCurve(BaseCurve):
 
         with_data: bool, optional
             If with_data is False,
-            the returned :class:`volue_insight_timeseries.util.TS` object
+            the returned :class:`volue_insight_timeseries_async.util.TS` object
             only contains the attributes and meta data information but no
             data values.
 
@@ -1244,24 +1438,24 @@ class TaggedInstanceCurve(BaseCurve):
             to given "time_zone" here.
 
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_time_zones`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_time_zones`.
 
         filter: str, optional
             only get a specific subset of the data.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_filters` :
+            :meth:`volue_insight_timeseries_async.session.Session.get_filters` :
 
         function: str, optional
             function used to aggregate or split data, must be used together
             with the ``frequency`` parameter.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_functions` :
+            :meth:`volue_insight_timeseries_async.session.Session.get_functions` :
 
         frequency: str, optional
             data will be aggregated or split to the requested frequency using
             the given function.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_frequencies`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_frequencies`.
 
         output_time_zone: str, optional
             Change curve time zone AFTER performing an aggregation/split
@@ -1269,12 +1463,12 @@ class TaggedInstanceCurve(BaseCurve):
 
         Returns
         -------
-        :class:`volue_insight_timeseries.util.TS` object
+        :class:`volue_insight_timeseries_async.util.TS` object
         """
 
         if only_accessible is not None:
             warnings.warn("only_accessible parameter will be removed soon.", FutureWarning, stacklevel=2)
-        args=[util.make_arg('with_data', '{}'.format(with_data).lower())]
+        args=[util.make_arg('with_data', f'{with_data}'.lower())]
         if tags is not None:
             args.append(util.make_arg('tag', tags))
         self._add_from_to(args, issue_date_from, issue_date_to, prefix='issue_date_')
@@ -1284,17 +1478,33 @@ class TaggedInstanceCurve(BaseCurve):
         if issue_dates is not None:
             args.append(util.make_arg('issue_date', issue_dates))
         astr = '&'.join(args)
-        url = '/api/v1/timeseries/instances/tagged/{}/latest?{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to load tagged instance')
+        url = f'/api/v1/timeseries/instances/tagged/{self.id}/latest?{astr}'
+        result = self._load_ts(url, 'Failed to load tagged instance')
         if result is None:
             return result
         return util.TS(input_dict=result, curve_type=util.TAGGED_INSTANCES)
 
 
-    def get_relative(self, data_offset, data_max_length=None, tag=None, issue_date_from=None, issue_date_to=None,
-                     issue_dates=None, issue_weekdays=None, issue_days=None, issue_months=None, issue_times=None,
-                     data_from=None, data_to=None, time_zone=None, filter=None, function=None,
-                     frequency=None, output_time_zone=None):
+    def get_relative(
+        self,
+        data_offset: Duration,
+        data_max_length: Duration | None = None,
+        tag: str | None = None,
+        issue_date_from: DatetimeLike | None = None,
+        issue_date_to: DatetimeLike | None = None,
+        issue_dates: OneOrMany[DatetimeLike] | None = None,
+        issue_weekdays: OneOrMany[str] | None = None,
+        issue_days: OneOrMany[int] | None = None,
+        issue_months: OneOrMany[str] | None = None,
+        issue_times: OneOrMany[str] | None = None,
+        data_from: DatetimeLike | None = None,
+        data_to: DatetimeLike | None = None,
+        time_zone: str | None = None,
+        filter: FilterType | None = None,
+        function: FunctionType | None = None,
+        frequency: TsFreq | None = None,
+        output_time_zone: str | None = None,
+    ) -> TS | None:
         """ Get a relative forecast from the TAGGED INSTANCE curve
 
         A relative forecast is a time series created by joining multiple
@@ -1378,24 +1588,24 @@ class TaggedInstanceCurve(BaseCurve):
             to given "time_zone" here.
 
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_time_zones`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_time_zones`.
 
         filter: str, optional
             only get a specific subset of the data.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_filters` :
+            :meth:`volue_insight_timeseries_async.session.Session.get_filters` :
 
         function: str, optional
             function used to aggregate or split data, must be used together
             with the ``frequency`` parameter.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_functions` :
+            :meth:`volue_insight_timeseries_async.session.Session.get_functions` :
 
         frequency: str, optional
             data will be aggregated or split to the requested frequency using
             the given function.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_frequencies`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_frequencies`.
 
         output_time_zone: str, optional
             Change curve time zone AFTER performing an aggregation/split
@@ -1403,9 +1613,9 @@ class TaggedInstanceCurve(BaseCurve):
 
         Returns
         -------
-        :class:`volue_insight_timeseries.util.TS` object
+        :class:`volue_insight_timeseries_async.util.TS` object
         """
-        args = [util.make_arg('data_offset', '{}'.format(data_offset))]
+        args = [util.make_arg('data_offset', f'{data_offset}')]
         self._add_from_to(args, issue_date_from, issue_date_to, prefix='issue_date_')
         self._add_from_to(args, data_from, data_to, prefix='data_')
         self._add_functions(args, time_zone, filter, function, frequency, output_time_zone)
@@ -1424,13 +1634,20 @@ class TaggedInstanceCurve(BaseCurve):
         if issue_times is not None:
             args.append(util.make_arg('issue_time', issue_times))
         astr = '&'.join(args)
-        url = '/api/v1/timeseries/instances/tagged/{}/relative?{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to find instances')
+        url = f'/api/v1/timeseries/instances/tagged/{self.id}/relative?{astr}'
+        result = self._load_ts(url, 'Failed to find instances')
         if result is None:
             return result
         return util.TS(input_dict=result, curve_type=util.TAGGED_INSTANCES)
 
-    def get_absolute(self, data_date, issue_frequency=None, tag=None, issue_date_from=None, issue_date_to=None):
+    def get_absolute(
+        self,
+        data_date: DatetimeLike,
+        issue_frequency: TsFreq | None = None,
+        tag: str | None = None,
+        issue_date_from: DatetimeLike | None = None,
+        issue_date_to: DatetimeLike | None = None,
+    ) -> TS | None:
         """ Get an absolute forecast from the INSTANCE curve
 
         An absolute forecast is a time series created by selecting a single
@@ -1455,7 +1672,7 @@ class TaggedInstanceCurve(BaseCurve):
             returned for those instances whose issue_date is compatible
             with issue_frequency.
             You can find valid values for this by calling
-            :meth:`volue_insight_timeseries.session.Session.get_frequencies`.
+            :meth:`volue_insight_timeseries_async.session.Session.get_frequencies`.
 
         tag: str, optional
             tag to get the data for. If omitted, the default tag is used.
@@ -1472,7 +1689,7 @@ class TaggedInstanceCurve(BaseCurve):
 
         Returns
         -------
-        :class:`volue_insight_timeseries.util.TS` object
+        :class:`volue_insight_timeseries_async.util.TS` object
         """
         args = [util.make_arg('data_date', data_date)]
         if issue_frequency is not None:
@@ -1481,8 +1698,8 @@ class TaggedInstanceCurve(BaseCurve):
             args.append(util.make_arg('tag', tag))
         self._add_from_to(args, issue_date_from, issue_date_to, prefix='issue_date_')
         astr = '&'.join(args)
-        url = '/api/v1/timeseries/instances/tagged/{}/absolute?{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to find instances')
+        url = f'/api/v1/timeseries/instances/tagged/{self.id}/absolute?{astr}'
+        result = self._load_ts(url, 'Failed to find instances')
         if result is None:
             return result
         return util.TS(input_dict=result, curve_type=util.TAGGED_INSTANCES)
@@ -1498,37 +1715,72 @@ class PairedListCurve(TaggedInstanceCurve):
     - get_data(): Get paired data with date filtering
     - access(): Get access control metadata
     """
-    def get_latest(self, *args, **kwargs):
+    @override
+    def get_latest(self, *args: object, **kwargs: object) -> NoReturn:
         raise util.MethodNotApplicable(
             "get_latest() is not applicable for PairedList curves. "
             "Use get_data(data_from=..., data_to=..., with_data=True) instead."
         )
 
-    def get_relative(self, *args, **kwargs):
+    @override
+    def get_relative(self, *args: object, **kwargs: object) -> NoReturn:
         raise util.MethodNotApplicable(
             "get_relative() is not applicable for PairedList curves. "
             "Use get_data(data_from=..., data_to=..., with_data=True) instead."
         )
 
-    def get_absolute(self, *args, **kwargs):
+    @override
+    def get_absolute(self, *args: object, **kwargs: object) -> NoReturn:
         raise util.MethodNotApplicable(
             "get_absolute() is not applicable for PairedList curves. "
             "Use get_data(data_from=..., data_to=..., with_data=True) instead."
         )
 
-    def get_instance(self, *args, **kwargs):
+    @override
+    def get_instance(self, *args: object, **kwargs: object) -> NoReturn:
         raise util.MethodNotApplicable(
             "get_instance() is not applicable for PairedList curves. "
             "Use get_data(data_from=..., data_to=..., with_data=True) instead."
         )
 
-    def search_instances(self, *args, **kwargs):
+    @override
+    def search_instances(self, *args: object, **kwargs: object) -> NoReturn:
         raise util.MethodNotApplicable(
             "search_instances() is not applicable for PairedList curves. "
             "Use get_data(data_from=..., data_to=..., with_data=False) to list instances."
         )
 
-    def get_data(self, data_from=None, data_to=None, with_data=False):
+    @overload
+    def get_data(
+        self,
+        data_from: DatetimeLike | None = None,
+        data_to: DatetimeLike | None = None,
+        with_data: Literal[False] = False,
+    ) -> list[util.TS] | None: ...
+
+    @overload
+    def get_data(
+        self,
+        data_from: DatetimeLike | None = None,
+        data_to: DatetimeLike | None = None,
+        *,
+        with_data: Literal[True],
+    ) -> list[util.PairedTS] | None: ...
+
+    @overload
+    def get_data(
+        self,
+        data_from: DatetimeLike | None = None,
+        data_to: DatetimeLike | None = None,
+        with_data: bool = False,
+    ) -> list[util.TS] | list[util.PairedTS] | None: ...
+
+    def get_data(
+        self,
+        data_from: DatetimeLike | None = None,
+        data_to: DatetimeLike | None = None,
+        with_data: bool = False,
+    ) -> list[util.TS] | list[util.PairedTS] | None:
         """
         Get paired data from the PairedList curve.
 
@@ -1557,7 +1809,7 @@ class PairedListCurve(TaggedInstanceCurve):
 
         Returns
         -------
-        list of :class:`volue_insight_timeseries.util.PairedTS` or :class:`volue_insight_timeseries.util.TS`
+        list of :class:`volue_insight_timeseries_async.util.PairedTS` or :class:`volue_insight_timeseries_async.util.TS`
             Returns a list of PairedTS objects when with_data=True, containing
             metadata and paired data points. Returns a list of regular TS objects
             with metadata only when with_data=False.
@@ -1583,13 +1835,13 @@ class PairedListCurve(TaggedInstanceCurve):
             # Convert to pandas DataFrame
             df = instances[0].to_pandas()
         """
-        args = []
+        args: list[str] = []
         args.append(util.make_arg('with_data', str(with_data).lower()))
         self._add_from_to(args, data_from, data_to, prefix='data_')
 
         astr = '&'.join(args)
-        url = '/api/v1/timeseries/instances/paired/{}?{}'.format(self.id, astr)
-        result = self._load_data(url, 'Failed to find paired data instances')
+        url = f'/api/v1/timeseries/instances/paired/{self.id}?{astr}'
+        result = self._load_ts_list(url, 'Failed to find paired data instances')
 
         if result is None:
             return result
@@ -1598,8 +1850,7 @@ class PairedListCurve(TaggedInstanceCurve):
         if with_data:
             return [util.PairedTS(input_dict=r, curve_type=util.PAIRED_LIST)
                     for r in result]
-        else:
-            return [util.TS(input_dict=r, curve_type=util.PAIRED_LIST)
-                    for r in result]
+        return [util.TS(input_dict=r, curve_type=util.PAIRED_LIST)
+                for r in result]
 
-curveType = Union[TaggedCurve,InstanceCurve,TaggedInstanceCurve,PairedListCurve,TimeSeriesCurve]
+curveType = TaggedCurve | InstanceCurve | TaggedInstanceCurve | PairedListCurve | TimeSeriesCurve

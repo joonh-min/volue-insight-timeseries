@@ -1,3 +1,6 @@
+# [DISABLED in fork] Releases are disabled, this fork is installed with `pip install git+...`
 FROM python:3.14
+
+RUN echo "Releases are disabled in this fork, install it with pip install git+https://github.com/joonh-min/volue-insight-timeseries.git" >&2 && exit 1
 
 RUN pip install -U twine

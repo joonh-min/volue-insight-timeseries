@@ -10,7 +10,7 @@ Be aware, that it might take up to 15 minutes until there is new data in the
 curves and this script actually does something
 """
 
-import volue_insight_timeseries
+import volue_insight_timeseries_async
 import pandas as pd
 import time
 import os
@@ -21,7 +21,7 @@ my_config_file = 'path/to/your/config.ini'
 ############################################
 
 # Create a session to Connect to Volue Data & Forecasts API
-session = volue_insight_timeseries.Session(config_file=my_config_file)
+session = volue_insight_timeseries_async.Session(config_file=my_config_file)
 
 ## Set up an event listener for defined curves
 ##############################################
@@ -65,11 +65,11 @@ t_start = time.time()
 # code ones for each events
 for e in events:
 
-    if isinstance(e, volue_insight_timeseries.events.EventTimeout):
+    if isinstance(e, volue_insight_timeseries_async.events.EventTimeout):
         # If there is a timeout, you can handle this here, eg raise a warning
         print('TIMEOUT!')
 
-    elif isinstance(e, volue_insight_timeseries.events.CurveEvent):
+    elif isinstance(e, volue_insight_timeseries_async.events.CurveEvent):
         print('New event in curve: ' + e.curve.name)
         curve = e.curve
         # since actuals are usually a bit delayed, we get data

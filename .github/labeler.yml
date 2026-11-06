@@ -4,7 +4,7 @@ documentation:
 
 dependencies:
   - changed-files:
-      - any-glob-to-any-file: 'requirements.txt'
+      - any-glob-to-any-file: 'pyproject.toml'
 
 feature:
   - changed-files:
@@ -15,8 +15,3 @@ internal:
       - any-glob-to-any-file:
           - '.github/**'
           - 'releases/**'
-
-# we don't want Release PR in the changelog
-ignore-for-release:
-  - changed-files:
-      - any-glob-to-any-file: 'volue_insight_timeseries/VERSION'

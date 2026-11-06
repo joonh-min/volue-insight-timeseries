@@ -3,7 +3,7 @@ import os
 import warnings
 import pytest
 import requests_mock
-import volue_insight_timeseries as vit
+import volue_insight_timeseries_async as vit
 
 prefix = 'rtsp://test.host/api/v1/timeseries'
 authprefix = 'rtsp://auth.host/oauth2'
@@ -111,10 +111,11 @@ def test_tagged(tagged_curve):
 
 def test_tagged_tags(tagged_curve):
     c,s,m = tagged_curve
-    tags = {'test': 'ok'}
+    # The API sends the tags as a list of str
+    tags = ['Avg', '01']
     m.register_uri('GET', prefix + '/series/tagged/9/tags', text=json.dumps(tags))
     res = c.get_tags()
-    assert res['test'] == 'ok'
+    assert res == ['Avg', '01']
 
 def test_tagged_data(tagged_curve):
     c,s,m = tagged_curve
@@ -230,10 +231,10 @@ def test_tagged_inst_curve(tagged_inst_curve):
 
 def test_tagged_inst_tags(tagged_inst_curve):
     c,s,m = tagged_inst_curve
-    tags = {'test': 'ok'}
+    tags = ['Avg', '01']
     m.register_uri('GET', prefix + '/instances/tagged/10/tags', text=json.dumps(tags))
     res = c.get_tags()
-    assert res['test'] == 'ok'
+    assert res == ['Avg', '01']
 
 def test_tagged_inst_search(tagged_inst_curve):
     c,s,m = tagged_inst_curve

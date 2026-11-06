@@ -1,6 +1,0 @@
-requests>=2.18
-urllib3>=1.26
-sseclient-py>=1.7
-python-dateutil
-tenacity>=9.0.0,<10.0.0
-aiohttp>=3.0.0,<4.0.0

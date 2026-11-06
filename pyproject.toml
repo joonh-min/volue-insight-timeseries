@@ -1,0 +1,165 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "volue-insight-timeseries-async"
+# Kept equal to the upstream version this fork has merged, to show where the fork stands
+version = "3.0.0"
+description = "Volue Data & Forecasts API python library"
+readme = { text = "Python library for the Volue Data & Forecasts Timeseries API. You need a Volue Data & Forecasts account. Documentation: https://docs.volue.com/data-and-forecasts/volue-insight-timeseries/", content-type = "text/plain" }
+# This fork supports Python 3.12 to 3.15, unlike upstream's policy at https://docs.volue.com/data-and-forecasts/volue-insight-timeseries/getting-started/installation#supported-python-versions
+requires-python = ">=3.12,<3.16"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Volue Data & Forecasts", email = "df.support@volue.com" }]
+# Tested Python versions: keep in line with .github/workflows/unittests.yml
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+]
+dependencies = [
+    "requests>=2.18",
+    "urllib3>=1.26",
+    "sseclient-py>=1.7",
+    "python-dateutil",
+    "tenacity>=9.0.0,<10.0.0",
+    "aiohttp>=3.0.0,<4.0.0",
+]
+
+[project.optional-dependencies]
+pandas = ["pandas>=1.5.0"]
+
+[project.urls]
+Homepage = "https://www.volue.com/data-and-forecasts"
+Documentation = "https://docs.volue.com/data-and-forecasts/volue-insight-timeseries/"
+Source = "https://github.com/joonh-min/volue-insight-timeseries"
+Upstream = "https://github.com/Volue-Public/volue-insight-timeseries"
+Issues = "https://github.com/joonh-min/volue-insight-timeseries/issues"
+
+# Install with `uv sync --group dev`, `poetry install --with dev` or `pip install --group dev` (pip 25.1+)
+[dependency-groups]
+test = [
+    "pytest",
+    "pytest-cov>=2.7.1",
+    "requests-mock>=1.6",
+]
+dev = [
+    { include-group = "test" },
+    "mypy",
+    "pyrefly",
+    "ruff",
+    "pandas-stubs",
+    "types-python-dateutil",
+    "types-requests",
+]
+
+[tool.setuptools.packages.find]
+include = ["volue_insight_timeseries_async*", "vit_async*"]
+
+[tool.pytest.ini_options]
+addopts = "--cov volue_insight_timeseries_async"
+python_files = "unittest/*.py"
+
+[tool.ruff]
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    "__pypackages__",
+    "_build",
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git-rewrite",
+    ".git",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+]
+# Ruff only takes the lowest supported Python, the range is in requires-python
+target-version = "py312"
+line-length = 199
+indent-width = 4
+
+[tool.ruff.lint]
+select = [
+    "A",        # flake8-builtins https://docs.astral.sh/ruff/rules/#flake8-builtins-a
+    "ASYNC",    # flake8-async https://docs.astral.sh/ruff/rules/#flake8-async-async
+    "B",        # flake8-bugbear https://docs.astral.sh/ruff/rules/#flake8-bugbear-b
+    "C4",       # flake8-comprehensions https://docs.astral.sh/ruff/rules/#flake8-comprehensions-c4
+    "C90",      # mccabe https://docs.astral.sh/ruff/rules/#mccabe-c90
+    "E",        # pycodestyle Error https://docs.astral.sh/ruff/rules/#error-e
+    "F",        # Pyflakes https://docs.astral.sh/ruff/rules/#pyflakes-f
+    "FIX",      # flake8-fixme https://docs.astral.sh/ruff/rules/#flake8-fixme-fix
+    "FURB",     # refurb https://docs.astral.sh/ruff/rules/#refurb-furb
+    "G",        # flake8-logging-format https://docs.astral.sh/ruff/rules/#flake8-logging-format-g
+    "I",        # isort https://docs.astral.sh/ruff/rules/#isort-i
+    "ISC",      # flake8-implicit-str-concat https://docs.astral.sh/ruff/rules/#flake8-implicit-str-concat-isc
+    "N",        # pep8-naming https://docs.astral.sh/ruff/rules/#pep8-naming-n
+    "NPY",      # NumPy-specific rules https://docs.astral.sh/ruff/rules/#numpy-specific-rules-npy
+    "PD",       # pandas-vet https://docs.astral.sh/ruff/rules/#pandas-vet-pd
+    "PERF",     # Perflint https://docs.astral.sh/ruff/rules/#perflint-perf
+    "PIE",      # flake8-pie https://docs.astral.sh/ruff/rules/#flake8-pie-pie
+    "PL",       # Pylint https://docs.astral.sh/ruff/rules/#pylint-pl
+    "PT",       # flake8-pytest-style https://docs.astral.sh/ruff/rules/#flake8-pytest-style-pt
+    "PYI",      # flake8-pyi https://docs.astral.sh/ruff/rules/#flake8-pyi-pyi
+    "RET",      # flake8-return https://docs.astral.sh/ruff/rules/#flake8-return-ret
+    "RUF",      # Ruff-specific rules https://docs.astral.sh/ruff/rules/#ruff-specific-rules-ruf
+    "S",        # flake8-bandit https://docs.astral.sh/ruff/rules/#flake8-bandit-s
+    "SIM",      # flake8-simplify https://docs.astral.sh/ruff/rules/#flake8-simplify-sim
+    "T20",      # flake8-print https://docs.astral.sh/ruff/rules/#flake8-print-t20
+    "TC",       # flake8-type-checking https://docs.astral.sh/ruff/rules/#flake8-type-checking-tc
+    "UP",       # pyupgrade https://docs.astral.sh/ruff/rules/#pyupgrade-up
+    "W",        # pycodestyle Warning https://docs.astral.sh/ruff/rules/#warning-w
+]
+ignore = [
+    "C901",
+    "N803",
+    "N806",
+    "N816",
+    "PLR0402",
+    "PLR0911",
+    "PLR0912",
+    "PLR0913",
+    "PLR0915",
+    "PLR2004",
+    "SIM112",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# vit_async only re-exports volue_insight_timeseries_async under a shorter name
+"vit_async/*" = ["F403"]
+
+[tool.ruff.format]
+# Like Black, use double quotes for strings.
+quote-style = "double"
+docstring-code-format = true
+# Like Black, indent with spaces, rather than tabs.
+indent-style = "space"
+
+[tool.pyrefly]
+# Check the package as `volue_insight_timeseries_async`, so relative imports resolve to one module
+project-includes = ["volue_insight_timeseries_async", "vit_async"]
+search-path = ["."]
+python-version = "3.12"
+python-interpreter-path = ".venv/bin/python"
+preset = "strict"

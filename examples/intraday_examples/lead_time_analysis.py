@@ -10,8 +10,8 @@ benchmark forecast for each release (each 15 min).
 
 
 Used libraries:
-volue_insight_timeseries: A library from volue used to access the Volue Data & Forecasts API. To install, run: pip install
-volue-insight-timeseries.
+volue_insight_timeseries_async: A library from volue used to access the Volue Data & Forecasts API. To install, run: pip install
+"volue-insight-timeseries-async @ git+https://github.com/joonh-min/volue-insight-timeseries.git".
 pandas:                   A python library used to handle data. To install, run pip install pandas
 os:                       Functionalities for interacting with the operating system. This is a standard python library,
                           so no installation is needed.
@@ -29,7 +29,7 @@ plotly.graph_objects:     Another module of the plotly library used to create pl
 # data_time:              The timestamp of the forecasted value.
 
 """
-from volue_insight_timeseries import Session
+from volue_insight_timeseries_async import Session
 import pandas as pd
 import os
 import plotly.express as px
@@ -102,11 +102,11 @@ def get_input_data(
 
 
 def getkey() -> Session:
-    """This function configures Session from volue_insight_timeseries with local environment variable "WAPI_INI_READ"
+    """This function configures Session from volue_insight_timeseries_async with local environment variable "WAPI_INI_READ"
     to allow for connection to the Volue Data & Forecasts API.
 
     Returns:
-        session (volue_insight_timeseries.session.Session): A session object that can
+        session (volue_insight_timeseries_async.session.Session): A session object that can
         communicate with the Volue Data & Forecasts API.
     """
 

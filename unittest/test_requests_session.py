@@ -10,7 +10,7 @@ import requests_mock
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 
-import volue_insight_timeseries as vit
+import volue_insight_timeseries_async as vit
 
 
 TOKEN = json.dumps({'token_type': 'Bearer', 'access_token': 'secrettoken', 'expires_in': 1000})

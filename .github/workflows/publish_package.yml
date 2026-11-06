@@ -1,20 +1,25 @@
-name: Publish package
+name: "[DISABLED in fork] Publish package"
 
 on:
   workflow_run:
-    workflows: ["Create Release"]
+    workflows: ["[DISABLED in fork] Create Release"]
     types:
       - completed
 
 jobs:
   publish-package:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     timeout-minutes: 10
     runs-on: ubuntu-latest
     permissions:
       contents: 'read'
       id-token: 'write'
     steps:
+      # This fork is installed with `pip install git+...` and is never released to PyPI
+      - name: Fail, releases are disabled in this fork
+        run: |
+          echo "Releases are disabled in this fork, install it with pip install git+https://github.com/joonh-min/volue-insight-timeseries.git" >&2
+          exit 1
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
@@ -24,7 +29,7 @@ jobs:
         with:
           python-version: '3.14'
 
-      - run: pip install -U setuptools twine wheel
+      - run: pip install -U build twine
 
       - name: Read version
         id: read-version
@@ -53,14 +58,16 @@ jobs:
             echo "No release points at the checked-out commit ${head_sha}" >&2
             exit 1
           fi
-          echo "${tag_name}" > volue_insight_timeseries/VERSION
+          # The version lives in pyproject.toml, set it to the release tag for this build
+          sed -i "s/^version = \".*\"$/version = \"${tag_name}\"/" pyproject.toml
+          grep -qx "version = \"${tag_name}\"" pyproject.toml
           echo "VERSION=${tag_name}" >> "$GITHUB_OUTPUT"
 
       - name: Build dist
         id: build-dist
         run: |
           rm -rf dist
-          python setup.py sdist bdist_wheel
+          python -m build
 
       - name: Publish package to PyPI
         uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3

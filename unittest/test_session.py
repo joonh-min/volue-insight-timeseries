@@ -8,7 +8,7 @@ import json
 import time
 import warnings
 
-import volue_insight_timeseries as vit
+import volue_insight_timeseries_async as vit
 
 
 authprefix = 'rtsp://auth.host/oauth2'
@@ -26,8 +26,8 @@ def make_vit_session() -> vit.Session:
                                 client_secret='secret1')
 
 # ignore auth
-@patch('volue_insight_timeseries.session.auth', MagicMock())
-@patch('volue_insight_timeseries.session.requests')
+@patch('volue_insight_timeseries_async.session.auth', MagicMock())
+@patch('volue_insight_timeseries_async.session.requests')
 def test_data_request__get__ok(requests_mock):
     mock_response = MockResponse(200)
     # https://docs.python.org/3/library/unittest.mock-examples.html#mocking-chained-calls
@@ -72,8 +72,8 @@ def test_data_request__token_expire__ok(mock_request):
         (None, "/token", "https://data-forecasts.volue.com/token"), 
         ("http://urlbase", "/token", "http://urlbase/token")
     ])
-@patch('volue_insight_timeseries.session.auth', MagicMock())
-@patch('volue_insight_timeseries.session.requests')
+@patch('volue_insight_timeseries_async.session.auth', MagicMock())
+@patch('volue_insight_timeseries_async.session.requests')
 def test_send_data_request__long_url__correct(requests_mock, urlbase, url, longurl_expected):
     requests_mock.Session.return_value.request.return_value = MockResponse(200)
 
@@ -90,8 +90,8 @@ def test_send_data_request__long_url__correct(requests_mock, urlbase, url, longu
         (40, None, b"40"), 
         ("basestring", "rawdata", b"basestring")
     ])
-@patch('volue_insight_timeseries.session.auth', MagicMock())
-@patch('volue_insight_timeseries.session.requests')
+@patch('volue_insight_timeseries_async.session.auth', MagicMock())
+@patch('volue_insight_timeseries_async.session.requests')
 def test_send_data_request__databytes__correct(requests_mock, data, rawdata, databytes_expected):
     requests_mock.Session.return_value.request.return_value = MockResponse(200)
 
@@ -103,8 +103,8 @@ def test_send_data_request__databytes__correct(requests_mock, data, rawdata, dat
 
 
 @pytest.mark.parametrize("failed_status_code", [408, 500, 599])
-@patch('volue_insight_timeseries.session.auth', MagicMock())
-@patch('volue_insight_timeseries.session.requests')
+@patch('volue_insight_timeseries_async.session.auth', MagicMock())
+@patch('volue_insight_timeseries_async.session.requests')
 def test_send_data_request__retries__correct(requests_mock, failed_status_code):
     requests_mock.Session.return_value.request.return_value = MockResponse(failed_status_code)
 
@@ -119,8 +119,8 @@ def test_send_data_request__retries__correct(requests_mock, failed_status_code):
     assert requests_mock.Session.return_value.request.call_count == retries_count + 1
 
 
-@patch('volue_insight_timeseries.session.auth')
-@patch('volue_insight_timeseries.session.requests')
+@patch('volue_insight_timeseries_async.session.auth')
+@patch('volue_insight_timeseries_async.session.requests')
 def test_data_request__get_auth__first_failed_then_ok(requests_mock, auth_mock):
     mock_response = MockResponse(200)
     requests_mock.Session.return_value.request.return_value = mock_response
@@ -152,8 +152,8 @@ def test_data_request__get_auth__first_failed_then_ok(requests_mock, auth_mock):
     assert call_args[1]['headers'] == {'Authorization': 'X Y'}
 
 
-@patch('volue_insight_timeseries.session.auth')
-@patch('volue_insight_timeseries.session.requests')
+@patch('volue_insight_timeseries_async.session.auth')
+@patch('volue_insight_timeseries_async.session.requests')
 def test_data_request__fail_too_many_times(requests_mock, auth_mock):
     mock_response = MockResponse(200)
     requests_mock.Session.return_value.request.return_value = mock_response

@@ -14,7 +14,7 @@ A number of use cases is presented in order to introduce different data structur
 1. Using pip
 
 	```command
-	pip install -U volue-insight-timeseries
+	pip install -U "volue-insight-timeseries-async[pandas] @ git+https://github.com/joonh-min/volue-insight-timeseries.git"
 	```
 
 ## Implementation
@@ -25,7 +25,7 @@ Complete working code can be found in the attached Jupyter Notebook file.
 	This requires having an OAuth client, which can be created at https://auth.volueinsight.com/account/oauth-clients.
 
 	```python
-	>>> session = volue_insight_timeseries.Session(client_id='client id', client_secret='client secret')
+	>>> session = volue_insight_timeseries_async.Session(client_id='client id', client_secret='client secret')
 	```
 
 2. Search curves by meta data.

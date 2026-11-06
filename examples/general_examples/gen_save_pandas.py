@@ -5,7 +5,7 @@ data type files. Have a look at the pandas documentation for more information
 https://pandas.pydata.org/pandas-docs/stable/io.html
 """
 
-import volue_insight_timeseries
+import volue_insight_timeseries_async
 import pandas as pd
 import os
 
@@ -15,7 +15,7 @@ my_config_file = 'path/to/your/config.ini'
 ############################################
 
 # Create a session to Connect to Volue Data & Forecasts API
-session = volue_insight_timeseries.Session(config_file=my_config_file)
+session = volue_insight_timeseries_async.Session(config_file=my_config_file)
 
 # get the directory of the current file
 file_dir = os.path.dirname(os.path.realpath(__file__))

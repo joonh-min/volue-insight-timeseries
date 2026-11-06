@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import time
 import warnings
 from configparser import RawConfigParser
-from typing import Any, Literal
+from typing import IO, TYPE_CHECKING, ClassVar, Literal, overload
 from urllib.parse import urljoin
 
 import aiohttp
@@ -14,8 +13,26 @@ import aiohttp.web_exceptions
 import requests
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
-from . import auth, curves_async, events, util
-from .util import CurveException, DatetimeLike, _TsFreqs
+from . import auth, curves_async, util
+from .models import (
+    CURVE_METADATA_KEYS,
+    AttributeName,
+    AttributeValue,
+    CurveMetadata,
+    CurveType,
+    DatetimeLike,
+    JSONValue,
+    RawData,
+    TsFreq,
+    is_attribute_values,
+    is_curve_metadata,
+)
+from .util import CurveException
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from .events import EventListener
 
 RETRY_COUNT = 4    # Number of times to retry
 RETRY_DELAY = 0.5  # Delay between retried calls, in seconds.
@@ -62,14 +79,14 @@ class Asession:
 
     Returns
     -------
-    session: :class:`volue_insight_timeseries.session.Session` object
+    session: :class:`volue_insight_timeseries_async.session.Session` object
 
     """
 
     def __init__(
         self,
         urlbase: str | None = None,
-        config_file: str | RawConfigParser | None = None,
+        config_file: str | IO[str] | None = None,
         client_id: str | None = None,
         client_secret: str | None = None,
         auth_urlbase: str | None = None,
@@ -90,7 +107,7 @@ class Asession:
         if timeout is not None:
             self.timeout = timeout
 
-    def read_config_file(self, config_file:str|RawConfigParser)->None:
+    def read_config_file(self, config_file:str|IO[str])->None:
         """Set up according to configuration file with hosts and access details"""
         if self.auth is not None:
             raise ConfigException('Session configuration is already done')
@@ -142,19 +159,21 @@ class Asession:
         -------
         curve object
             Curve objects, can be one of:
-            :class:`~volue_insight_timeseries.curves_async.TimeSeriesCurve`,
-            :class:`~volue_insight_timeseries.curves_async.TaggedCurve`,
-            :class:`~volue_insight_timeseries.curves_async.InstanceCurve`,
-            :class:`~volue_insight_timeseries.curves_async.TaggedInstanceCurve`.
+            :class:`~volue_insight_timeseries_async.curves_async.TimeSeriesCurve`,
+            :class:`~volue_insight_timeseries_async.curves_async.TaggedCurve`,
+            :class:`~volue_insight_timeseries_async.curves_async.InstanceCurve`,
+            :class:`~volue_insight_timeseries_async.curves_async.TaggedInstanceCurve`.
         """
         if id is not None:
             warnings.warn("Looking up a curve by ID will be removed in the future.", FutureWarning, stacklevel=2)
-        if id is None and name is None:
+        if id is not None:
+            arg = util.make_arg('id', id)
+        elif name is not None:
+            arg = util.make_arg('name', name)
+        else:
             raise MetadataException('No curve specified')
-
-        arg = util.make_arg('id', id) if id is not None else util.make_arg('name', name)
-        response:curves_async.Metadata = await self.data_request('GET', self.urlbase, f'/api/curves/get?{arg}')
-        return self._build_curve(response)
+        response = await self.data_request('GET', self.urlbase, f'/api/curves/get?{arg}')
+        return self._build_curve(self._check_metadata(response))
 
     async def search(
         self,
@@ -170,7 +189,7 @@ class Asession:
         unit:str|list[str]|None=None,
         time_zone:str|list[str]|None=None,
         version:str|list[str]|None=None,
-        frequency:_TsFreqs|list[_TsFreqs]|None=None,
+        frequency:TsFreq|list[TsFreq]|None=None,
         data_type:str|list[str]|None=None,
         curve_state:str|list[str]|None=None,
         modified_since:DatetimeLike|None=None,
@@ -182,10 +201,10 @@ class Asession:
         This function searches for curves that matches the given search
         parameters and returns a list of 0 or more curve objects.
         A curve object can be a
-        :class:`~volue_insight_timeseries.curves_async.TimeSeriesCurve`,
-        :class:`~volue_insight_timeseries.curves_async.TaggedCurve`,
-        :class:`~volue_insight_timeseries.curves_async.InstanceCurve` or a
-        :class:`~volue_insight_timeseries.curves_async.TaggedInstanceCurve` object.
+        :class:`~volue_insight_timeseries_async.curves_async.TimeSeriesCurve`,
+        :class:`~volue_insight_timeseries_async.curves_async.TaggedCurve`,
+        :class:`~volue_insight_timeseries_async.curves_async.InstanceCurve` or a
+        :class:`~volue_insight_timeseries_async.curves_async.TaggedInstanceCurve` object.
 
         The search will return those curves matching all supplied parameters
         (logical AND). For most parameters, a list of values may be supplied.
@@ -214,62 +233,62 @@ class Asession:
         commodity: str or list of str
             search for curves that match the given ``commodity`` attribute.
             Get valid values for this attribute with
-            :meth:`volue_insight_timeseries.session.Session.get_commodities`
+            :meth:`volue_insight_timeseries_async.session.Session.get_commodities`
 
         category: str or list of str
             search for curves that match the given ``category`` attribute.
             Get valid values for this attribute with
-            :meth:`volue_insight_timeseries.session.Session.get_categories`
+            :meth:`volue_insight_timeseries_async.session.Session.get_categories`
 
         area: str or list of str
             search for curves that match the given ``area`` attribute.
             Get valid values for this attribute with
-            :meth:`volue_insight_timeseries.session.Session.get_areas`
+            :meth:`volue_insight_timeseries_async.session.Session.get_areas`
 
         station: str or list of str
             search for curves that match the given ``station`` attribute.
             Get valid values for this attribute with
-            :meth:`volue_insight_timeseries.session.Session.get_stations`
+            :meth:`volue_insight_timeseries_async.session.Session.get_stations`
 
         source: str or list of str
             search for curves that match the given ``source`` attribute.
             Get valid values for this attribute with
-            :meth:`volue_insight_timeseries.session.Session.get_sources`
+            :meth:`volue_insight_timeseries_async.session.Session.get_sources`
 
         scenario: str or list of str
             search for curves that match the given ``scenario`` attribute.
             Get valid values for this attribute with
-            :meth:`volue_insight_timeseries.session.Session.get_scenarios`
+            :meth:`volue_insight_timeseries_async.session.Session.get_scenarios`
 
         unit: str or list of str
             search for curves that match the given ``unit`` attribute.
             Get valid values for this attribute with
-            :meth:`volue_insight_timeseries.session.Session.get_units`
+            :meth:`volue_insight_timeseries_async.session.Session.get_units`
 
         time_zone: str or list of str
             search for curves that match the given ``time_zone`` attribute.
             Get valid values for this attribute with
-            :meth:`volue_insight_timeseries.session.Session.get_time_zones`
+            :meth:`volue_insight_timeseries_async.session.Session.get_time_zones`
 
         version: str or list of str
             search for curves that match the given ``version`` attribute.
             Get valid values for this attribute with
-            :meth:`volue_insight_timeseries.session.Session.get_versions`
+            :meth:`volue_insight_timeseries_async.session.Session.get_versions`
 
         frequency: str or list of str
             search for curves that match the given ``frequency`` attribute.
             Get valid values for this attribute with
-            :meth:`volue_insight_timeseries.session.Session.get_frequencies`
+            :meth:`volue_insight_timeseries_async.session.Session.get_frequencies`
 
         data_type: str or list of str
             search for curves that match the given ``data_type`` attribute.
             Get valid values for this attribute with
-            :meth:`volue_insight_timeseries.session.Session.get_data_types`
+            :meth:`volue_insight_timeseries_async.session.Session.get_data_types`
 
         curve_state: str or list of str
             search for curves that match the given ``curve_state`` attribute.
             Get valid values for this attribute with
-            :meth:`volue_insight_timeseries.session.Session.get_curve_state`
+            :meth:`volue_insight_timeseries_async.session.Session.get_curve_state`
 
         modified_since: datestring, pandas.Timestamp or datetime.datetime
             only return curves that where modified after given datetime.
@@ -281,10 +300,10 @@ class Asession:
         -------
         curves: list
             list of curve objects, can be one of:
-            :class:`~volue_insight_timeseries.curves_async.TimeSeriesCurve`,
-            :class:`~volue_insight_timeseries.curves_async.TaggedCurve`,
-            :class:`~volue_insight_timeseries.curves_async.InstanceCurve`,
-            :class:`~volue_insight_timeseries.curves_async.TaggedInstanceCurve`.
+            :class:`~volue_insight_timeseries_async.curves_async.TimeSeriesCurve`,
+            :class:`~volue_insight_timeseries_async.curves_async.TaggedCurve`,
+            :class:`~volue_insight_timeseries_async.curves_async.InstanceCurve`,
+            :class:`~volue_insight_timeseries_async.curves_async.TaggedInstanceCurve`.
         """
         search_terms = {
             'query': query,
@@ -318,133 +337,163 @@ class Asession:
         # Now run the search, and try to produce a list of curves
         response = await self.data_request('GET', self.urlbase, f'/api/curves{astr}')
 
-        metadata_list:list[curves_async.Metadata] = [response] if isinstance(response, dict) else response
-        return [self._build_curve(metadata) for metadata in metadata_list]
+        if isinstance(response, list):
+            return [self._build_curve(self._check_metadata(metadata)) for metadata in response]
+        return [self._build_curve(self._check_metadata(response))]
 
-    def make_curve(self, id:int, curve_type:Literal["TIME_SERIES", "TAGGED", "INSTANCES", "TAGGED_INSTANCES"])->curves_async.curveType:
+    @overload
+    def make_curve(self, id:int, curve_type:Literal["TIME_SERIES"])->curves_async.TimeSeriesCurve: ...
+
+    @overload
+    def make_curve(self, id:int, curve_type:Literal["TAGGED"])->curves_async.TaggedCurve: ...
+
+    @overload
+    def make_curve(self, id:int, curve_type:Literal["INSTANCES"])->curves_async.InstanceCurve: ...
+
+    @overload
+    def make_curve(self, id:int, curve_type:Literal["TAGGED_INSTANCES"])->curves_async.TaggedInstanceCurve: ...
+
+    @overload
+    def make_curve(self, id:int, curve_type:CurveType)->curves_async.curveType: ...
+
+    def make_curve(self, id:int, curve_type:CurveType)->curves_async.curveType:
         """Return a mostly uninitialized curve object of the correct type.
         This is generally a bad idea, use get_curve or search when possible."""
         if curve_type in self._curve_types:
             return self._curve_types[curve_type](id, None, self)
         raise CurveException('Bad curve type requested')
 
-    def events(self, curve_list, start_time=None, timeout=None):
+    def events(
+        self,
+        curve_list:curves_async.BaseCurve|int|Iterable[curves_async.BaseCurve|int],
+        start_time:DatetimeLike|None=None,
+        timeout:float|None=None,
+    )->EventListener:
         """Get an event listener for a list of curves_async."""
-        return events.EventListener(self, curve_list, start_time=start_time, timeout=timeout)
+        # shortcut: EventListener reads the stream with a sync Session, port it to aiohttp before allowing this
+        raise NotImplementedError('Asession does not support events yet, use Session.events')
 
-    _attributes = {'commodities', 'categories', 'areas', 'stations', 'sources', 'scenarios',
+    _attributes: ClassVar[set[str]] = {'commodities', 'categories', 'areas', 'stations', 'sources', 'scenarios',
                    'units', 'time_zones', 'versions', 'frequencies', 'data_types',
                    'curve_states', 'curve_types', 'functions', 'filters'}
 
-    async def get_commodities(self)->list[dict]|dict:
+    async def get_commodities(self)->list[AttributeValue]:
         """
         Get valid values for the commodity attribute
         """
         return await self.get_attribute('commodities')
 
-    async def get_categories(self)->list[dict]|dict:
+    async def get_categories(self)->list[AttributeValue]:
         """
         Get valid values for the category attribute
         """
         return await self.get_attribute('categories')
 
-    async def get_areas(self)->list[dict]|dict:
+    async def get_areas(self)->list[AttributeValue]:
         """
         Get valid values for the area attribute
         """
         return await self.get_attribute('areas')
 
-    async def get_stations(self)->list[dict]|dict:
+    async def get_stations(self)->list[AttributeValue]:
         """
         Get valid values for the station attribute
         """
         return await self.get_attribute('stations')
 
-    async def get_sources(self)->list[dict]|dict:
+    async def get_sources(self)->list[AttributeValue]:
         """
         Get valid values for the source attribute
         """
         return await self.get_attribute('sources')
 
-    async def get_scenarios(self)->list[dict]|dict:
+    async def get_scenarios(self)->list[AttributeValue]:
         """
         Get valid values for the scenarios attribute
         """
         return await self.get_attribute('scenarios')
 
-    async def get_units(self)->list[dict]|dict:
+    async def get_units(self)->list[AttributeValue]:
         """
         Get valid values for the unit attribute
         """
         return await self.get_attribute('units')
 
-    async def get_time_zones(self)->list[dict]|dict:
+    async def get_time_zones(self)->list[AttributeValue]:
         """
         Get valid values for the time zone attribute
         """
         return await self.get_attribute('time_zones')
 
-    async def get_versions(self)->list[dict]|dict:
+    async def get_versions(self)->list[AttributeValue]:
         """
         Get valid values for the version attribute
         """
         return await self.get_attribute('versions')
 
-    async def get_frequencies(self)->list[dict]|dict:
+    async def get_frequencies(self)->list[AttributeValue]:
         """
         Get valid values for the frequency attribute
         """
         return await self.get_attribute('frequencies')
 
-    async def get_data_types(self)->list[dict]|dict:
+    async def get_data_types(self)->list[AttributeValue]:
         """
         Get valid values for the data_type attribute
         """
         return await self.get_attribute('data_types')
 
-    async def get_curve_states(self)->list[dict]|dict:
+    async def get_curve_states(self)->list[AttributeValue]:
         """
         Get valid values for the curve_state attribute
         """
         return await self.get_attribute('curve_states')
 
-    async def get_curve_types(self)->list[dict]|dict:
+    async def get_curve_types(self)->list[AttributeValue]:
         """
         Get valid values for the curve_type attribute
         """
         return await self.get_attribute('curve_types')
 
-    async def get_functions(self)->list[dict]|dict:
+    async def get_functions(self)->list[AttributeValue]:
         """
         Get valid values for the function attribute
         """
         return await self.get_attribute('functions')
 
-    async def get_filters(self)->list[dict]|dict:
+    async def get_filters(self)->list[AttributeValue]:
         """
         Get valid values for the filter attribute
         """
         return await self.get_attribute('filters')
 
-    async def get_attribute(self, attribute:str)->dict|list[dict]:
+    async def get_attribute(self, attribute:AttributeName)->list[AttributeValue]:
         """Get valid values for an attribute."""
         if attribute not in self._attributes:
             raise MetadataException(f'Attribute {attribute} is not valid')
-        return await self.data_request('GET', self.urlbase, f'/api/{attribute}')
-        # if not response:
-        #     return response
-        # return response.json()
+        response = await self.data_request('GET', self.urlbase, f'/api/{attribute}')
+        if not is_attribute_values(response):
+            raise MetadataException(f'Failed loading {attribute}: unexpected response')
+        return response
 
-    _curve_types = {
+    _curve_types: ClassVar[dict[str, type[curves_async.curveType]]] = {
         util.TIME_SERIES:      curves_async.TimeSeriesCurve,
         util.TAGGED:           curves_async.TaggedCurve,
         util.INSTANCES:        curves_async.InstanceCurve,
         util.TAGGED_INSTANCES: curves_async.TaggedInstanceCurve,
     }
 
-    _meta_keys = ('id', 'name', 'frequency', 'time_zone', 'curve_type')
+    _meta_keys = CURVE_METADATA_KEYS
 
-    def _build_curve(self, metadata:curves_async.Metadata)->curves_async.curveType:
+    def _check_metadata(self, value:JSONValue)->CurveMetadata:
+        if is_curve_metadata(value):
+            return value
+        if not isinstance(value, dict):
+            raise MetadataException('Curve metadata in the response is not a JSON object')
+        missing = next(key for key in CURVE_METADATA_KEYS if key not in value)
+        raise MetadataException(f'Mandatory key {missing} not found in metadata')
+
+    def _build_curve(self, metadata:CurveMetadata)->curves_async.curveType:
         for key in self._meta_keys:
             if key not in metadata:
                 raise MetadataException(f'Mandatory key {key} not found in metadata')
@@ -469,14 +518,11 @@ class Asession:
                 time.sleep(RETRY_DELAY)
             return self._get_auth_header_with_retry(retries - 1)
 
-    def _validate_auth(self, data:Any, rawdata:bytes|None)->dict[str,str]:
+    def _validate_auth(self, data:JSONValue, rawdata:RawData|None)->dict[str,str]:
         headers:dict[str,str] = {}
 
         if data is not None or rawdata is not None:
             headers['content-type'] = 'application/json'
-            databytes = data.encode() if isinstance(data, str) else json.dumps(data).encode()
-        if data is None and rawdata is not None:
-            databytes = rawdata
         if self.auth is not None:
             # Beta-feature: Only update auth with retry if explicitly requested
             if self.retry_update_auth:
@@ -493,8 +539,8 @@ class Asession:
         req_type: Literal["GET", "POST"],
         urlbase: str | None,
         url: str,
-        data:Any=None,
-        rawdata:bytes|None=None,
+        data:JSONValue=None,
+        rawdata:RawData|None=None,
         headers:dict[str,str]|None=None,
         authval:tuple[str,str]|None=None,
         stream: bool = False,
@@ -504,7 +550,7 @@ class Asession:
             urlbase = self.urlbase
         longurl = urljoin(urlbase, url)
 
-        databytes = None
+        databytes: RawData | None = None
         if data is not None:
             databytes = data.encode() if isinstance(data, str) else json.dumps(data).encode()
         if data is None and rawdata is not None:
@@ -537,11 +583,11 @@ class Asession:
         req_type: Literal["GET", "POST"],
         urlbase: str,
         url: str,
-        data: Any = None,
-        rawdata: bytes | None = None,
+        data: JSONValue = None,
+        rawdata: RawData | None = None,
         authval:tuple[str,str]|None=None,
         stream: bool = False,
-    ) -> dict|list[dict]:
+    ) -> JSONValue:
         """Run a call to the backend, dealing with authentication etc."""
         headers = self._validate_auth(data, rawdata)
         if self._asession is None:
@@ -550,7 +596,7 @@ class Asession:
             urlbase = self.urlbase
         longurl = urljoin(urlbase, url)
 
-        databytes = None
+        databytes: RawData | None = None
         if data is not None:
             databytes = data.encode() if isinstance(data, str) else json.dumps(data).encode()
         if data is None and rawdata is not None:
@@ -576,6 +622,6 @@ class Asession:
                 if status_code == 400:
                     raise aiohttp.web_exceptions.HTTPBadRequest(reason=response_content["reason"], body=str(response_content))
 
-        except Exception as e:
+        except Exception:
             raise
         return response_content
