@@ -533,13 +533,11 @@ class Asession:
         if('curve_state' in metadata and metadata['curve_state'] == 'DEPRECATED'):
             warnings.warn("Deprecation warning for curve: {}".format(metadata['name']), DeprecationWarning, stacklevel=4)
         if metadata['curve_type'] in self._curve_types:
-            c = self._curve_types[metadata['curve_type']](curve_id, metadata, self)
-            # Same as the sync Session: a paired list curve is a tagged instance curve with the PAIRED-LIST category
-            if isinstance(c, curves_async.TaggedInstanceCurve):
-                categories = getattr(c, 'categories', []) or []
-                if 'PAIRED-LIST' in categories:
-                    c.__class__ = curves_async.PairedListCurve
-            return c
+            curve_class = self._curve_types[metadata['curve_type']]
+            # A paired list curve is a tagged instance curve with the PAIRED-LIST category, picked before construction
+            if curve_class is curves_async.TaggedInstanceCurve and 'PAIRED-LIST' in (metadata.get('categories') or []):
+                curve_class = curves_async.PairedListCurve
+            return curve_class(curve_id, metadata, self)
         raise CurveException('Unknown curve type ({})'.format(metadata['curve_type']))
 
     def _get_auth_header_with_retry(self, retries:int=RETRY_COUNT)-> dict[str, str]:
