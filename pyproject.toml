@@ -137,16 +137,19 @@ select = [
     "W",        # pycodestyle Warning https://docs.astral.sh/ruff/rules/#warning-w
 ]
 ignore = [
+    "A002",
     "C901",
     "N803",
     "N806",
-    "N818",
+    "N815",
     "N816",
+    "N818",
     "PLR0402",
     "PLR0911",
     "PLR0912",
     "PLR0913",
     "PLR0915",
+    "PLR0917",
     "PLR2004",
     "SIM112",
 ]
