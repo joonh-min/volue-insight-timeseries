@@ -108,8 +108,10 @@ class BaseCurve:
         if output_time_zone is not None:
             args.append(util.make_arg('output_time_zone', output_time_zone))
 
-    async def _load_data(self, url:str, failmsg:str|None, urlbase:str|None=None)->JSONValue:
+    async def _load_data(self, url:str, failmsg:str, urlbase:str|None=None)->JSONValue:
         urlbase = self._session.urlbase if urlbase is None else urlbase
+        # Cleared first, so a failed call does not leave the previous response here
+        self._last_response: JSONValue = None
         try:
             response = await self._session.data_request('GET', urlbase, url)
         except util.ResponseError as e:

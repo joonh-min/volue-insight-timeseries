@@ -108,7 +108,7 @@ class BaseCurve:
         if output_time_zone is not None:
             args.append(util.make_arg('output_time_zone', output_time_zone))
 
-    def _load_data(self, url:str, failmsg:str|None, urlbase:str|None=None)->JSONValue:
+    def _load_data(self, url:str, failmsg:str, urlbase:str|None=None)->JSONValue:
         urlbase = self._session.urlbase if urlbase is None else urlbase
         response = self._session.data_request('GET', urlbase, url)
         self._last_response = response
