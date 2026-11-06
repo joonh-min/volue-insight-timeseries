@@ -37,10 +37,12 @@ class FakeAiohttpSession:
     def __init__(self, *responses: tuple[int, bytes | JSONValue] | Exception) -> None:
         self.responses = list(responses)
         self.urls: list[str] = []
+        self.headers: list[object] = []
         self.closed = False
 
     def request(self, method: str, url: str, **kwargs: object) -> FakeResponse:
         self.urls.append(url)
+        self.headers.append(kwargs.get('headers'))
         answer = self.responses.pop(0)
         if isinstance(answer, Exception):
             raise answer
@@ -196,3 +198,25 @@ def test_session_can_be_reused_in_a_new_event_loop() -> None:
     # Each event loop gets its own aiohttp session and semaphore
     assert first[0] is not second[0]
     assert first[1] is not second[1]
+
+
+def test_every_async_request_sends_the_current_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Another test sets this variable and does not remove it
+    monkeypatch.delenv('REPORTED_DATA_SOURCE', raising=False)
+    s = make_logged_in_session()
+    fake = FakeAiohttpSession((200, METADATA), (200, {'frequency': 'H', 'points': []}), (200, [{'key': 'MW', 'name': 'MW'}]))
+
+    async def run() -> None:
+        async with s as a:
+            real = a._asession
+            # The aiohttp session itself holds no token, every request brings its own
+            monkeypatch.setattr(a, '_asession', fake)
+            curve = await a.get_curve(name='curve')
+            assert isinstance(curve, InstanceCurve)
+            await curve.get_latest()
+            await a.get_attribute('units')
+            # Put the real session back, so the exit closes it
+            monkeypatch.setattr(a, '_asession', real)
+
+    asyncio.run(run())
+    assert fake.headers == [{'Authorization': 'Bearer secrettoken'}] * 3
