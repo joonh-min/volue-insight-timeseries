@@ -550,6 +550,12 @@ class Asession:
                 time.sleep(RETRY_DELAY)
             return self._get_auth_header_with_retry(retries - 1)
 
+    async def _auth_headers(self, data:JSONValue, rawdata:RawData|None)->dict[str,str]:
+        if self.auth is not None and self.auth.token_expired():
+            # Getting a token is a blocking HTTP call, so it runs in a thread instead of stopping the event loop
+            return await asyncio.to_thread(self._validate_auth, data, rawdata)
+        return self._validate_auth(data, rawdata)
+
     def _validate_auth(self, data:JSONValue, rawdata:RawData|None)->dict[str,str]:
         headers:dict[str,str] = {}
 
@@ -667,7 +673,7 @@ class Asession:
         stream: bool,
     ) -> tuple[int, bytes]:
         # Headers per attempt, so a token that expires between retries is refreshed
-        headers = self._validate_auth(data, rawdata)
+        headers = await self._auth_headers(data, rawdata)
         async with self._semaphore, asession.request(
             method=req_type, url=longurl, data=databytes, headers=headers, auth=aiohttp.BasicAuth(*authval) if authval else None,
             # Per request, so a changed timeout applies even to an aiohttp session that is already open

@@ -1,5 +1,7 @@
 import asyncio
 import json
+import threading
+import time
 from types import TracebackType
 from typing import Self
 from unittest.mock import MagicMock
@@ -220,3 +222,43 @@ def test_every_async_request_sends_the_current_token(monkeypatch: pytest.MonkeyP
 
     asyncio.run(run())
     assert fake.headers == [{'Authorization': 'Bearer secrettoken'}] * 3
+
+
+def test_expired_token_is_refreshed_off_the_event_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    s = make_logged_in_session()
+    login = s.auth
+    assert login is not None
+    threads: list[int] = []
+
+    def slow_authenticate() -> None:
+        threads.append(threading.get_ident())
+        time.sleep(0.2)
+        login.token, login.token_type, login.valid_until = 'newtoken', 'Bearer', time.time() + 3600
+
+    monkeypatch.setattr(login, '_authenticate', slow_authenticate)
+    fake = FakeAiohttpSession((200, [{'key': 'MW', 'name': 'MW'}]))
+    ticks = 0
+
+    async def ticker() -> None:
+        nonlocal ticks
+        while True:
+            ticks += 1
+            await asyncio.sleep(0.01)
+
+    async def run() -> None:
+        task = asyncio.create_task(ticker())
+        login.valid_until = 0
+        async with s as a:
+            real = a._asession
+            monkeypatch.setattr(a, '_asession', fake)
+            login.valid_until = 0
+            await a.get_attribute('units')
+            monkeypatch.setattr(a, '_asession', real)
+        task.cancel()
+
+    asyncio.run(run())
+    # Refreshed at `async with` and again before the request, each time in a worker thread
+    assert len(threads) == 2
+    assert threading.get_ident() not in threads
+    # The event loop kept running while each refresh slept
+    assert ticks >= 20

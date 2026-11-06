@@ -54,11 +54,15 @@ class OAuth:
         self._lock = threading.Lock()
         self._authenticate()
 
+    def token_expired(self)->bool:
+        """True when there is no token yet, or it is past valid_until"""
+        return (not self.valid_until) or time.time() > self.valid_until
+
     def validate_auth(self)->None:
         """Check valid_until and fetch new token if needed"""
         # To avoid sending duplicated authentication requests in other threads
         with self._lock:
-            if (not self.valid_until) or time.time() > self.valid_until:
+            if self.token_expired():
                 self._authenticate()
 
     def _authenticate(self)->None:
