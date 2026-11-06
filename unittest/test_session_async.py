@@ -262,3 +262,14 @@ def test_expired_token_is_refreshed_off_the_event_loop(monkeypatch: pytest.Monke
     assert threading.get_ident() not in threads
     # The event loop kept running while each refresh slept
     assert ticks >= 20
+
+
+def test_async_requests_send_the_library_user_agent() -> None:
+    s = make_logged_in_session()
+
+    async def user_agent() -> str:
+        async with s as a:
+            assert a._asession is not None
+            return a._asession.headers['User-Agent']
+
+    assert asyncio.run(user_agent()).startswith(f'volue-insight-timeseries/{vit.__version__} Python/')

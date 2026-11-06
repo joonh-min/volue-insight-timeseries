@@ -682,7 +682,11 @@ class Session:
             await asyncio.to_thread(self._async_client._get_auth_header_with_retry)
             # A new semaphore with each aiohttp session, so both belong to the event loop that is running now
             self._async_client._semaphore = asyncio.Semaphore(session_async.CONCURRENT_REQUESTS)
-            self._async_client._asession = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout))
+            # Same User-Agent as the sync requests, with aiohttp's own part in place of requests'
+            user_agent = f'{USER_AGENT} {aiohttp.http.SERVER_SOFTWARE}'
+            self._async_client._asession = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=self.timeout), headers={'User-Agent': user_agent}
+            )
         self._async_users += 1
         return self._async_client
 
