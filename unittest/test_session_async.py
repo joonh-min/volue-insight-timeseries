@@ -21,6 +21,7 @@ from volue_insight_timeseries_async.session_async import Asession, MetadataExcep
 class FakeResponse:
     def __init__(self, status: int, body: bytes | JSONValue) -> None:
         self.status = status
+        self.exited = False
         self._body = body if isinstance(body, bytes) else json.dumps(body).encode()
 
     async def read(self) -> bytes:
@@ -32,15 +33,19 @@ class FakeResponse:
     async def __aexit__(
         self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None
     ) -> bool:
+        self.exited = True
         return False
 
 
 class FakeStream:
-    def __init__(self, lines: list[bytes], block: bool) -> None:
+    def __init__(self, lines: list[bytes], block: bool, delay: float = 0) -> None:
         self.lines = list(lines)
         self.block = block
+        self.delay = delay
 
     async def readline(self) -> bytes:
+        # A slow line, a cancelled read would start this wait again from the beginning
+        await asyncio.sleep(self.delay)
         if self.lines:
             return self.lines.pop(0)
         if self.block:
@@ -52,9 +57,9 @@ class FakeStream:
 class FakeStreamResponse(FakeResponse):
     """A server-sent event stream that gives these lines, then ends or stays quiet"""
 
-    def __init__(self, lines: list[bytes], status: int = 200, block: bool = False) -> None:
+    def __init__(self, lines: list[bytes], status: int = 200, block: bool = False, delay: float = 0) -> None:
         super().__init__(status, b'stream error')
-        self.content = FakeStream(lines, block)
+        self.content = FakeStream(lines, block, delay)
 
 
 class FakeAiohttpSession:
@@ -318,11 +323,11 @@ def test_async_paired_list_curve(monkeypatch: pytest.MonkeyPatch) -> None:
 
 async def take(listener: AsyncEventListener, count: int) -> list[object]:
     items: list[object] = []
-    async for item in listener:
-        items.append(item)
-        if len(items) == count:
-            listener.close()
-            break
+    async with listener:
+        async for item in listener:
+            items.append(item)
+            if len(items) == count:
+                break
     return items
 
 
@@ -368,3 +373,48 @@ def test_async_events_raise_on_error_status(monkeypatch: pytest.MonkeyPatch) -> 
     a, _fake = make_asession(monkeypatch, FakeStreamResponse([], status=403))
     with pytest.raises(vit.util.ResponseError, match='HTTP 403'):
         asyncio.run(take(a.events(5), 1))
+
+
+def test_async_events_keep_a_slow_line_across_timeouts(monkeypatch: pytest.MonkeyPatch) -> None:
+    slow = FakeStreamResponse([b'data: {"x": 2}\n', b'\n'], delay=0.1)
+    a, _fake = make_asession(monkeypatch, slow)
+    listener = a.events(5, timeout=0.03)
+
+    async def until_event() -> list[object]:
+        items: list[object] = []
+        async with listener:
+            async for item in listener:
+                items.append(item)
+                if isinstance(item, DefaultEvent) or len(items) > 50:
+                    break
+        return items
+
+    items = asyncio.run(until_event())
+    # Timeouts while each line is on its way, then the event, not an endless run of timeouts
+    assert isinstance(items[0], EventTimeout)
+    last = items[-1]
+    assert isinstance(last, DefaultEvent)
+    assert last.json_data == {'x': 2}
+
+
+def test_async_events_close_wakes_a_quiet_stream_and_closes_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    quiet = FakeStreamResponse([], block=True)
+    a, _fake = make_asession(monkeypatch, quiet)
+    listener = a.events(5)
+
+    async def run() -> list[object]:
+        items: list[object] = []
+
+        async def consume() -> None:
+            async with listener:
+                async for item in listener:
+                    items.append(item)
+
+        task = asyncio.create_task(consume())
+        await asyncio.sleep(0.05)
+        listener.close()
+        await asyncio.wait_for(task, 1)
+        return items
+
+    assert asyncio.run(run()) == []
+    assert quiet.exited
