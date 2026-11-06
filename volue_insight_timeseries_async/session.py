@@ -15,6 +15,7 @@ from . import auth, curves, retry, util
 from ._version import __version__
 from .auth import AuthType
 from .events import EventListener
+from .models import CURVE_METADATA_KEYS
 from .session_async import Asession
 from .util import CurveException
 
@@ -542,13 +543,13 @@ class Session:
         util.TAGGED_INSTANCES: curves.TaggedInstanceCurve,
     }
 
-    _meta_keys = ('id', 'name', 'frequency', 'time_zone', 'curve_type')
+    _meta_keys = CURVE_METADATA_KEYS
 
     def _build_curve(self, metadata:CurveMetadata)->curves.curveType:
         for key in self._meta_keys:
             if key not in metadata:
                 raise MetadataException(f'Mandatory key {key} not found in metadata')
-        curve_id = metadata['id']
+        curve_id = int(metadata['id'])
         if('curve_state' in metadata and metadata['curve_state'] == 'DEPRECATED'):
             warnings.warn("Deprecation warning for curve: {}".format(metadata['name']), DeprecationWarning, stacklevel=4)
         if metadata['curve_type'] in self._curve_types:

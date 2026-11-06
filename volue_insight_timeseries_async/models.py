@@ -1,7 +1,7 @@
 """
 Type aliases and TypedDict models for the data sent by the API.
 
-Nothing here is checked at run time, these types are only for type checkers and editors.
+The is_* functions at the end check a JSON response at run time, the rest is only for type checkers.
 """
 
 from __future__ import annotations
@@ -50,8 +50,7 @@ type JSONValue = str | int | float | bool | list[JSONValue] | dict[str, JSONValu
 # A value util.make_arg can put in a URL query, a list gives the key once per item
 type ArgValue = str | int | float | datetime.date | Iterable[ArgValue]
 
-# One point is [timestamp in milliseconds since epoch, value], the value is None when it is missing.
-# Points of a paired list curve have one value per tag instead of one value.
+# One point is [timestamp in ms since epoch, value or None], a paired list point has one value per tag.
 Point = list[float | None]
 
 
@@ -128,8 +127,7 @@ class CurveEventPayload(TypedDict):
     range: NotRequired[DateRange]
 
 
-# Checks for the JSON the API sends, so a payload gets its TypedDict without a cast.
-# They only check the outer shape that the code relies on, not every key.
+# These check only the outer shape of the JSON the code relies on, so a payload gets its TypedDict without a cast.
 
 
 def is_ts_payload(value: JSONValue) -> TypeGuard[TSPayload]:
@@ -148,8 +146,12 @@ def is_date_range_list(value: JSONValue) -> TypeGuard[list[DateRange]]:
     return isinstance(value, list) and all(isinstance(item, dict) for item in value)
 
 
+# Keys every curve metadata response must have
+CURVE_METADATA_KEYS = ("id", "name", "frequency", "time_zone", "curve_type")
+
+
 def is_curve_metadata(value: JSONValue) -> TypeGuard[CurveMetadata]:
-    return isinstance(value, dict) and all(key in value for key in ("id", "name", "frequency", "time_zone", "curve_type"))
+    return isinstance(value, dict) and all(key in value for key in CURVE_METADATA_KEYS)
 
 
 def is_attribute_values(value: JSONValue) -> TypeGuard[list[AttributeValue]]:
@@ -159,6 +161,3 @@ def is_attribute_values(value: JSONValue) -> TypeGuard[list[AttributeValue]]:
 def is_curve_event_payload(value: JSONValue) -> TypeGuard[CurveEventPayload]:
     return isinstance(value, dict) and all(key in value for key in ("id", "created", "operation"))
 
-
-def is_curve_metadata_list(value: JSONValue) -> TypeGuard[list[CurveMetadata]]:
-    return isinstance(value, list) and all(is_curve_metadata(item) for item in value)

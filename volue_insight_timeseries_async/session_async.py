@@ -15,6 +15,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fi
 
 from . import auth, curves_async, util
 from .models import (
+    CURVE_METADATA_KEYS,
     AttributeName,
     AttributeValue,
     CurveMetadata,
@@ -25,7 +26,6 @@ from .models import (
     TsFreq,
     is_attribute_values,
     is_curve_metadata,
-    is_curve_metadata_list,
 )
 from .util import CurveException
 
@@ -173,9 +173,7 @@ class Asession:
         else:
             raise MetadataException('No curve specified')
         response = await self.data_request('GET', self.urlbase, f'/api/curves/get?{arg}')
-        if not is_curve_metadata(response):
-            raise MetadataException('Failed to load curve: unexpected response')
-        return self._build_curve(response)
+        return self._build_curve(self._check_metadata(response))
 
     async def search(
         self,
@@ -339,11 +337,9 @@ class Asession:
         # Now run the search, and try to produce a list of curves
         response = await self.data_request('GET', self.urlbase, f'/api/curves{astr}')
 
-        if is_curve_metadata(response):
-            return [self._build_curve(response)]
-        if not is_curve_metadata_list(response):
-            raise MetadataException('Curve search failed: unexpected response')
-        return [self._build_curve(metadata) for metadata in response]
+        if isinstance(response, list):
+            return [self._build_curve(self._check_metadata(metadata)) for metadata in response]
+        return [self._build_curve(self._check_metadata(response))]
 
     @overload
     def make_curve(self, id:int, curve_type:Literal["TIME_SERIES"])->curves_async.TimeSeriesCurve: ...
@@ -487,13 +483,21 @@ class Asession:
         util.TAGGED_INSTANCES: curves_async.TaggedInstanceCurve,
     }
 
-    _meta_keys = ('id', 'name', 'frequency', 'time_zone', 'curve_type')
+    _meta_keys = CURVE_METADATA_KEYS
+
+    def _check_metadata(self, value:JSONValue)->CurveMetadata:
+        if is_curve_metadata(value):
+            return value
+        if not isinstance(value, dict):
+            raise MetadataException('Curve metadata in the response is not a JSON object')
+        missing = next(key for key in CURVE_METADATA_KEYS if key not in value)
+        raise MetadataException(f'Mandatory key {missing} not found in metadata')
 
     def _build_curve(self, metadata:CurveMetadata)->curves_async.curveType:
         for key in self._meta_keys:
             if key not in metadata:
                 raise MetadataException(f'Mandatory key {key} not found in metadata')
-        curve_id = metadata['id']
+        curve_id = int(metadata['id'])
         if('curve_state' in metadata and metadata['curve_state'] == 'DEPRECATED'):
             warnings.warn("Deprecation warning for curve: {}".format(metadata['name']), DeprecationWarning, stacklevel=4)
         if metadata['curve_type'] in self._curve_types:

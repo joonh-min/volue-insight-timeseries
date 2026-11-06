@@ -14,7 +14,7 @@ A number of use cases is presented in order to introduce different data structur
 1. Using pip
 
 	```command
-	pip install -U volue-insight-timeseries
+	pip install -U "volue-insight-timeseries-async[pandas] @ git+https://github.com/joonh-min/volue-insight-timeseries.git"
 	```
 
 ## Implementation
