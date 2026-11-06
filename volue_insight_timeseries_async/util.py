@@ -36,14 +36,14 @@ def _require_pandas() -> ModuleType:
     except ImportError as e:
         raise ImportError(
             "This function needs pandas. Install it with: "
-            "pip install 'volue-insight-timeseries[pandas]'"
+            "pip install 'volue-insight-timeseries-async[pandas]'"
         ) from e
     match = re.match(r"(\d+)\.(\d+)", getattr(pandas, "__version__", ""))
     if match and tuple(map(int, match.groups())) < _MIN_PANDAS_VERSION:
         raise ImportError(
             "This function needs pandas>=1.5, but pandas "
             f"{pandas.__version__} is installed. Upgrade it with: "
-            "pip install -U 'volue-insight-timeseries[pandas]'"
+            "pip install -U 'volue-insight-timeseries-async[pandas]'"
         )
     return pandas
 
@@ -223,7 +223,7 @@ class TS:
         return " ".join(attrs)
 
     def to_pandas(self, name:str|None=None)->pd.Series[float]:
-        """Converting :class:`volue_insight_timeseries.util.TS` object
+        """Converting :class:`volue_insight_timeseries_async.util.TS` object
         to a pandas.Series object
 
         Parameters
@@ -307,10 +307,10 @@ class TS:
     @staticmethod
     def sum(ts_list:list[TS], name:str)->TS:
         """calculate the sum of a given list
-        of :class:`volue_insight_timeseries.util.TS` objects
+        of :class:`volue_insight_timeseries_async.util.TS` objects
 
-        Returns a :class:`~volue_insight_timeseries.util.TS`
-        (:class:`volue_insight_timeseries.util.TS`) object that is
+        Returns a :class:`~volue_insight_timeseries_async.util.TS`
+        (:class:`volue_insight_timeseries_async.util.TS`) object that is
         the sum of a list of TS objects with the given name.
 
         Parameters
@@ -321,7 +321,7 @@ class TS:
             Name of the returned TS object.
         Returns
         -------
-        :class:`volue_insight_timeseries.util.TS` object
+        :class:`volue_insight_timeseries_async.util.TS` object
         """
         df = _ts_list_to_dataframe(ts_list)
         return _generated_series_to_TS(df.sum(axis=1), name)
@@ -330,7 +330,7 @@ class TS:
     def mean(ts_list:list[TS], name:str)->TS:
         """calculate the mean of a given list of TS objects
 
-        Returns a TS (:class:`volue_insight_timeseries.util.TS`) object that is
+        Returns a TS (:class:`volue_insight_timeseries_async.util.TS`) object that is
         the mean of a list of TS objects with the given name.
 
         Parameters
@@ -341,7 +341,7 @@ class TS:
             Name of the returned TS object.
         Returns
         -------
-        :class:`volue_insight_timeseries.util.TS` object
+        :class:`volue_insight_timeseries_async.util.TS` object
         """
         df = _ts_list_to_dataframe(ts_list)
         return _generated_series_to_TS(df.mean(axis=1), name)
@@ -350,7 +350,7 @@ class TS:
     def median(ts_list:list[TS], name:str)->TS:
         """calculate the median of a given list of TS objects
 
-        Returns a TS (:class:`volue_insight_timeseries.util.TS`) object that is
+        Returns a TS (:class:`volue_insight_timeseries_async.util.TS`) object that is
         the median of a list of TS objects with the given name.
 
         Parameters
@@ -361,7 +361,7 @@ class TS:
             Name of the returned TS object.
         Returns
         -------
-        :class:`volue_insight_timeseries.util.TS` object
+        :class:`volue_insight_timeseries_async.util.TS` object
         """
         df = _ts_list_to_dataframe(ts_list)
         return _generated_series_to_TS(df.median(axis=1), name)

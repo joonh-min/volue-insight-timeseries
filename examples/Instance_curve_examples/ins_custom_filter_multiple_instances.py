@@ -12,9 +12,9 @@ Read our docs on best practice to make sure you follow our guidelines.
 
 from datetime import datetime
 
-from volue_insight_timeseries import Session
-from volue_insight_timeseries.util import TS
-from volue_insight_timeseries.curves import InstanceCurve
+from volue_insight_timeseries_async import Session
+from volue_insight_timeseries_async.util import TS
+from volue_insight_timeseries_async.curves import InstanceCurve
 
 ## INPUTS
 ################################################

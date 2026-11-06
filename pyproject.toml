@@ -3,8 +3,8 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "volue-insight-timeseries"
-# The publish workflow sets this to the release tag before it builds
+name = "volue-insight-timeseries-async"
+# Kept equal to the upstream version this fork has merged, to show where the fork stands
 version = "3.0.0"
 description = "Volue Data & Forecasts API python library"
 readme = { text = "Python library for the Volue Data & Forecasts Timeseries API. You need a Volue Data & Forecasts account. Documentation: https://docs.volue.com/data-and-forecasts/volue-insight-timeseries/", content-type = "text/plain" }
@@ -61,10 +61,10 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["volue_insight_timeseries*"]
+include = ["volue_insight_timeseries_async*", "vit_async*"]
 
 [tool.pytest.ini_options]
-addopts = "--cov volue_insight_timeseries"
+addopts = "--cov volue_insight_timeseries_async"
 python_files = "unittest/*.py"
 
 [tool.ruff]
@@ -147,6 +147,10 @@ ignore = [
     "SIM112",
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# vit_async only re-exports volue_insight_timeseries_async under a shorter name
+"vit_async/*" = ["F403"]
+
 [tool.ruff.format]
 # Like Black, use double quotes for strings.
 quote-style = "double"
@@ -155,8 +159,8 @@ docstring-code-format = true
 indent-style = "space"
 
 [tool.pyrefly]
-# Check the package as `volue_insight_timeseries`, so relative imports resolve to one module
-project-includes = ["volue_insight_timeseries"]
+# Check the package as `volue_insight_timeseries_async`, so relative imports resolve to one module
+project-includes = ["volue_insight_timeseries_async", "vit_async"]
 search-path = ["."]
 python-version = "3.12"
 python-interpreter-path = ".venv/bin/python"

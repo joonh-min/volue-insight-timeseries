@@ -3,9 +3,9 @@ import types
 
 import pytest
 
-from volue_insight_timeseries import util
+from volue_insight_timeseries_async import util
 
-INSTALL_HINT = r"volue-insight-timeseries\[pandas\]"
+INSTALL_HINT = r"volue-insight-timeseries-async\[pandas\]"
 
 
 @pytest.fixture

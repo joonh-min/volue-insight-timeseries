@@ -3,7 +3,7 @@ This simple example reads paired data from a PairedList curve
 PairedList curves contain paired values like price-volume pairs.
 """
 
-import volue_insight_timeseries as vit
+import volue_insight_timeseries_async as vit
 import matplotlib.pyplot as plt
 
 ############################################

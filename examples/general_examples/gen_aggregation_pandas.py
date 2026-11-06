@@ -7,7 +7,7 @@ https://github.com/Volue-Public/volue-insight-timeseries/blob/master/examples/Ti
 Have a look at the pandas documentation for further information:
 https://docs.volue.com/data-and-forecasts/volue-insight-timeseries/
 """
-import volue_insight_timeseries
+import volue_insight_timeseries_async
 import pandas as pd
 import matplotlib.pyplot as plt
 
@@ -18,7 +18,7 @@ my_config_file = 'path/to/your/config.ini'
 
 
 # Create a session to Connect to Volue Data & Forecasts API
-session = volue_insight_timeseries.Session(config_file=my_config_file)
+session = volue_insight_timeseries_async.Session(config_file=my_config_file)
 
 # Define start and end time
 # start_date

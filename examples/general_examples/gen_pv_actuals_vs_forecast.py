@@ -4,7 +4,7 @@ weather forecast and the GFS00 weather forecasts with the Actual PV production.
 The comparison can be performed for any region
 """
 
-import volue_insight_timeseries
+import volue_insight_timeseries_async
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
@@ -18,7 +18,7 @@ region = 'de'
 ############################################
 
 # Create a session to Connect to Volue Data & Forecasts API
-session = volue_insight_timeseries.Session(config_file=my_config_file)
+session = volue_insight_timeseries_async.Session(config_file=my_config_file)
 
 # Define yesterday
 yesterday = pd.Timestamp.now().floor('D') - pd.Timedelta(days=1)

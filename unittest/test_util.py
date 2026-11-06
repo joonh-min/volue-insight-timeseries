@@ -2,7 +2,7 @@ import pytest
 import pandas as pd
 from datetime import datetime
 from unittest import mock
-from volue_insight_timeseries.util import TS, TIME_SERIES
+from volue_insight_timeseries_async.util import TS, TIME_SERIES
 
 
 @pytest.fixture

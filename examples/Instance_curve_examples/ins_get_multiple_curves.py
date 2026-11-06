@@ -1,11 +1,11 @@
 """
-Example that reads data from volue_insight_timeseries INSTANCE curves
+Example that reads data from volue_insight_timeseries_async INSTANCE curves
 can read multiple instances between two dates, saves each instance in seperate
 csv file as well as all instances to one csv file.
 Multiple curves and multiple regions (for all curves) can be specified
 """
 
-import volue_insight_timeseries
+import volue_insight_timeseries_async
 import pandas as pd
 import os
 
@@ -42,7 +42,7 @@ if not os.path.isdir(data_dir):
     os.mkdir(data_dir)
 
 # Create a session to Connect to Volue Data & Forecasts API
-session = volue_insight_timeseries.Session(config_file=my_config_file)
+session = volue_insight_timeseries_async.Session(config_file=my_config_file)
 
 # loop through the given curves
 for c, curve_name in enumerate(curve_names):

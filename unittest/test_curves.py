@@ -3,7 +3,7 @@ import os
 import warnings
 import pytest
 import requests_mock
-import volue_insight_timeseries as vit
+import volue_insight_timeseries_async as vit
 
 prefix = 'rtsp://test.host/api/v1/timeseries'
 authprefix = 'rtsp://auth.host/oauth2'

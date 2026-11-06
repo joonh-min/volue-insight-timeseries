@@ -4,7 +4,7 @@ in a safe but efficient way.
 Typically used to download the history of forecasts.
 """
 
-import volue_insight_timeseries
+import volue_insight_timeseries_async
 from datetime import datetime, timedelta
 from dateutil.parser import parse
 from zoneinfo import ZoneInfo
@@ -16,7 +16,7 @@ my_config_file = 'path/to/your/config.ini'
 ############################################
 
 # Create a session to Connect to Volue Data & Forecasts API
-session = volue_insight_timeseries.Session(config_file=my_config_file)
+session = volue_insight_timeseries_async.Session(config_file=my_config_file)
 
 # As an example, we read the temperature ensemble forecast
 # for some regions for the ec00ens and ec12ens forecast of

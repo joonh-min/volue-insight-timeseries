@@ -5,16 +5,16 @@ Have a look at the documentation for further information:
 https://docs.volue.com/data-and-forecasts/volue-insight-timeseries/guides/curves#tagged_instances
 """
 
-import volue_insight_timeseries
+import volue_insight_timeseries_async
 import matplotlib.pyplot as plt
 
 ############################################
 # Insert the path to your config file here!
 my_config_file = 'path/to/your/config.ini'
 # Create a session to connect to Volue Data & Forecasts API.
-session = volue_insight_timeseries.Session(config_file=my_config_file)
+session = volue_insight_timeseries_async.Session(config_file=my_config_file)
 # or
-#session = volue_insight_timeseries.Session(client_id='client id', client_secret='client secret')
+#session = volue_insight_timeseries_async.Session(client_id='client id', client_secret='client secret')
 ############################################
 
 # Define curve name to read, in this case the intraday price forecast.

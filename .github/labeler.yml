@@ -19,4 +19,4 @@ internal:
 # we don't want Release PR in the changelog
 ignore-for-release:
   - changed-files:
-      - any-glob-to-any-file: 'volue_insight_timeseries/VERSION'
+      - any-glob-to-any-file: 'volue_insight_timeseries_async/VERSION'

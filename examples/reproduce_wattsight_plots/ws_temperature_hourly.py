@@ -3,7 +3,7 @@ This example shows how to reproduce temperature forecast plot for any region:
 https://app.volueinsight.com/#tab/power/245/2
 """
 
-import volue_insight_timeseries
+import volue_insight_timeseries_async
 import pandas as pd
 import numpy as np
 import matplotlib as mpl
@@ -44,7 +44,7 @@ func = 'AVERAGE'
 ###############
 
 # Create a session to Connect to Volue Data & Forecasts API
-session = volue_insight_timeseries.Session(config_file=my_config_file)
+session = volue_insight_timeseries_async.Session(config_file=my_config_file)
 
 # get current dates and timeranges to get data
 now = pd.Timestamp.now()
