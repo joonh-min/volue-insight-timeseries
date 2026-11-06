@@ -5,7 +5,7 @@ import json
 import time
 import warnings
 from configparser import RawConfigParser
-from typing import TYPE_CHECKING, ClassVar, Literal, overload
+from typing import IO, TYPE_CHECKING, ClassVar, Literal, overload
 from urllib.parse import urljoin
 
 import aiohttp
@@ -86,7 +86,7 @@ class Asession:
     def __init__(
         self,
         urlbase: str | None = None,
-        config_file: str | RawConfigParser | None = None,
+        config_file: str | IO[str] | None = None,
         client_id: str | None = None,
         client_secret: str | None = None,
         auth_urlbase: str | None = None,
@@ -107,7 +107,7 @@ class Asession:
         if timeout is not None:
             self.timeout = timeout
 
-    def read_config_file(self, config_file:str|RawConfigParser)->None:
+    def read_config_file(self, config_file:str|IO[str])->None:
         """Set up according to configuration file with hosts and access details"""
         if self.auth is not None:
             raise ConfigException('Session configuration is already done')

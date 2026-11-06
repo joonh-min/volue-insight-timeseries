@@ -8,10 +8,7 @@ name = "volue-insight-timeseries-async"
 version = "3.0.0"
 description = "Volue Data & Forecasts API python library"
 readme = { text = "Python library for the Volue Data & Forecasts Timeseries API. You need a Volue Data & Forecasts account. Documentation: https://docs.volue.com/data-and-forecasts/volue-insight-timeseries/", content-type = "text/plain" }
-# Fork policy: Python 3.12 up to 3.15.
-# Upstream policy: https://docs.volue.com/data-and-forecasts/volue-insight-timeseries/getting-started/installation#supported-python-versions
-# The upper cap makes pip on Python 3.16 or newer fall back to an old release.
-# Raising the minimum drops users on that version, so it needs a major release.
+# This fork supports Python 3.12 to 3.15, unlike upstream's policy at https://docs.volue.com/data-and-forecasts/volue-insight-timeseries/getting-started/installation#supported-python-versions
 requires-python = ">=3.12,<3.16"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -40,8 +37,9 @@ pandas = ["pandas>=1.5.0"]
 [project.urls]
 Homepage = "https://www.volue.com/data-and-forecasts"
 Documentation = "https://docs.volue.com/data-and-forecasts/volue-insight-timeseries/"
-Source = "https://github.com/Volue-Public/volue-insight-timeseries"
-Issues = "https://github.com/Volue-Public/volue-insight-timeseries/issues"
+Source = "https://github.com/joonh-min/volue-insight-timeseries"
+Upstream = "https://github.com/Volue-Public/volue-insight-timeseries"
+Issues = "https://github.com/joonh-min/volue-insight-timeseries/issues"
 
 # Install with `uv sync --group dev`, `poetry install --with dev` or `pip install --group dev` (pip 25.1+)
 [dependency-groups]

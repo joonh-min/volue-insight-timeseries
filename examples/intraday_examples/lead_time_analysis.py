@@ -11,7 +11,7 @@ benchmark forecast for each release (each 15 min).
 
 Used libraries:
 volue_insight_timeseries_async: A library from volue used to access the Volue Data & Forecasts API. To install, run: pip install
-volue-insight-timeseries.
+"volue-insight-timeseries-async @ git+https://github.com/joonh-min/volue-insight-timeseries.git".
 pandas:                   A python library used to handle data. To install, run pip install pandas
 os:                       Functionalities for interacting with the operating system. This is a standard python library,
                           so no installation is needed.

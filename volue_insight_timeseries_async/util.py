@@ -190,7 +190,7 @@ class TS:
         def keys(ts: TS) -> tuple[str, float, str, str, int]:
             return (
                 (
-                    str(ts.issue_date) if ts.issue_date is not None else "",
+                    "" if ts.issue_date is None else ts.issue_date if isinstance(ts.issue_date, str) else ts.issue_date.isoformat(),
                     ts.id if ts.id is not None else float("inf"),
                     ts.name if ts.name is not None else "",
                     ts.tag if ts.tag is not None else "",
