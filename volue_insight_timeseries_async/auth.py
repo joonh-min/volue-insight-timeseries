@@ -126,3 +126,12 @@ class VolueIdentity(OAuth):
     scope = 'in.dnf:api'
     mismatch_hint = ('Check that the client ID and secret are your Volue Identity credentials. '
                      'If they are your existing Volue Data & Forecasts credentials, set auth_type = OAuth.')
+
+
+AUTH_URLBASE = 'https://auth.volueinsight.com'
+VOLUE_IDENTITY_AUTH_URLBASE = 'https://auth.identity.volue.com'
+
+DEFAULT_AUTH_URLBASES: dict[AuthType, str] = {
+    AuthType.OAUTH: AUTH_URLBASE,
+    AuthType.VOLUE_IDENTITY: VOLUE_IDENTITY_AUTH_URLBASE,
+}

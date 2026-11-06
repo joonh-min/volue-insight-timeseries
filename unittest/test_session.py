@@ -466,3 +466,15 @@ def test_async_client_is_lazy_and_shares_login():
         s.timeout = 12
         assert asyncio.run(enter()) is a
         assert a.timeout == 12
+
+
+def test_asession_supports_volue_identity_and_rejects_unknown_auth():
+    config_file = os.path.join(os.path.dirname(__file__), 'testconfig_volueidentity.ini')
+    token = json.dumps({'token_type': 'Bearer', 'access_token': 'secrettoken', 'expires_in': 3600})
+    with requests_mock.Mocker() as m:
+        m.post(VI_TOKEN_URL, text=token)
+        a = vit.session_async.Asession(config_file=config_file)
+    assert isinstance(a.auth, vit.auth.VolueIdentity)
+    assert m.call_count == 1
+    with pytest.raises(vit.session_async.ConfigException, match='Unknown auth_type'):
+        vit.session_async.Asession(config_file=io.StringIO('[common]\nauth_type = Sales\n'))

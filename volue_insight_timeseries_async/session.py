@@ -31,13 +31,10 @@ RETRY_COUNT = 4    # Number of times to retry
 RETRY_DELAY = 0.5  # Delay between retried calls, in seconds.
 TIMEOUT = 300      # Default timeout for web calls, in seconds.
 API_URLBASE = 'https://data-forecasts.volue.com'
-AUTH_URLBASE = 'https://auth.volueinsight.com'
-VOLUE_IDENTITY_AUTH_URLBASE = 'https://auth.identity.volue.com'
-
-DEFAULT_AUTH_URLBASES = {
-    AuthType.OAUTH: AUTH_URLBASE,
-    AuthType.VOLUE_IDENTITY: VOLUE_IDENTITY_AUTH_URLBASE,
-}
+# Defined in auth, so the async session can use them too
+AUTH_URLBASE = auth.AUTH_URLBASE
+VOLUE_IDENTITY_AUTH_URLBASE = auth.VOLUE_IDENTITY_AUTH_URLBASE
+DEFAULT_AUTH_URLBASES = auth.DEFAULT_AUTH_URLBASES
 
 USER_AGENT = f'volue-insight-timeseries/{__version__}'
 

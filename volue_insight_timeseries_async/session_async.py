@@ -14,6 +14,7 @@ import requests
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from . import auth, curves_async, util
+from .auth import AuthType
 from .models import (
     CURVE_METADATA_KEYS,
     AttributeName,
@@ -38,7 +39,7 @@ RETRY_COUNT = 4    # Number of times to retry
 RETRY_DELAY = 0.5  # Delay between retried calls, in seconds.
 TIMEOUT = 300      # Default timeout for web calls, in seconds.
 API_URLBASE = 'https://data-forecasts.volue.com'
-AUTH_URLBASE = 'https://auth.volueinsight.com'
+AUTH_URLBASE = auth.AUTH_URLBASE
 
 
 class ConfigException(Exception):
@@ -47,6 +48,14 @@ class ConfigException(Exception):
 
 class MetadataException(Exception):
     pass
+
+
+def _parse_auth_type(auth_type:AuthType|str)->AuthType:
+    try:
+        return AuthType(auth_type)
+    except ValueError:
+        raise ConfigException('Unknown auth_type {!r}, expected one of: {}'
+                              .format(auth_type, ', '.join(t.value for t in AuthType))) from None
 
 
 class Asession:
@@ -92,6 +101,7 @@ class Asession:
         auth_urlbase: str | None = None,
         timeout: float | None = None,
         retry_update_auth: bool = False,
+        auth_type: AuthType | str = AuthType.OAUTH,
     )->None:
         self.urlbase:str = urlbase if urlbase is not None else API_URLBASE
         self.auth:auth.OAuth | None = None
@@ -103,7 +113,7 @@ class Asession:
         if config_file is not None:
             self.read_config_file(config_file)
         elif client_id is not None and client_secret is not None:
-            self.configure(client_id, client_secret, auth_urlbase)
+            self.configure(client_id, client_secret, auth_urlbase, auth_type)
         if timeout is not None:
             self.timeout = timeout
 
@@ -123,22 +133,30 @@ class Asession:
         urlbase = config.get('common', 'urlbase', fallback=None)
         if urlbase is not None:
             self.urlbase = urlbase
-        auth_type = config.get('common', 'auth_type')
-        if auth_type == 'OAuth':
-            client_id = config.get(auth_type, 'id')
-            client_secret = config.get(auth_type, 'secret')
-            auth_urlbase = config.get(auth_type, 'auth_urlbase', fallback=AUTH_URLBASE)
-            self.auth = auth.OAuth(self, client_id, client_secret, auth_urlbase)
+        auth_type = _parse_auth_type(config.get('common', 'auth_type'))
+        client_id = config.get(auth_type.value, 'id')
+        client_secret = config.get(auth_type.value, 'secret')
+        auth_urlbase = config.get(auth_type.value, 'auth_urlbase', fallback=None)
+        self.configure(client_id, client_secret, auth_urlbase, auth_type)
         timeout = config.get('common', 'timeout', fallback=None)
         if timeout is not None:
             self.timeout = float(timeout)
 
-    def configure(self, client_id:str, client_secret:str, auth_urlbase:str|None=None)->None:
+    def configure(
+        self,
+        client_id:str,
+        client_secret:str,
+        auth_urlbase:str|None=None,
+        auth_type:AuthType|str=AuthType.OAUTH,
+    )->None:
         """Programmatically set authentication parameters"""
         if self.auth is not None:
             raise ConfigException('Session configuration is already done')
-        auth_urlbase = auth_urlbase if auth_urlbase is not None else AUTH_URLBASE
-        self.auth = auth.OAuth(self, client_id, client_secret, auth_urlbase)
+        auth_type = _parse_auth_type(auth_type)
+        if auth_urlbase is None:
+            auth_urlbase = auth.DEFAULT_AUTH_URLBASES[auth_type]
+        auth_classes = {AuthType.OAUTH: auth.OAuth, AuthType.VOLUE_IDENTITY: auth.VolueIdentity}
+        self.auth = auth_classes[auth_type](self, client_id, client_secret, auth_urlbase)
 
     async def get_curve(self, id:int|None=None, name:str|None=None) -> curves_async.curveType:
         """Getting a curve object
