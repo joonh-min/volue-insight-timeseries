@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar, Literal, overload
+from typing import TYPE_CHECKING, ClassVar, Literal, NoReturn, overload, override
 
 from . import util
 from .models import (
@@ -1702,4 +1702,153 @@ class TaggedInstanceCurve(BaseCurve):
             return result
         return util.TS(input_dict=result, curve_type=util.TAGGED_INSTANCES)
 
-curveType = TaggedCurve | InstanceCurve | TaggedInstanceCurve | TimeSeriesCurve
+class PairedListCurve(TaggedInstanceCurve):
+    """
+    Specialized curve class for handling paired market data (e.g., price-volume, bid-offer, merit-order)
+    Inherits from TaggedInstanceCurve to leverage core timeseries operations.
+    This curve type supports three dimensions, time (t), value-dimension 1 (y) and value-dimension 2 (z).
+
+    Supported methods:
+    - get_tags(): Get available tags for this curve
+    - get_data(): Get paired data with date filtering
+    - access(): Get access control metadata
+    """
+    @override
+    async def get_latest(self, *args: object, **kwargs: object) -> NoReturn:
+        raise util.MethodNotApplicable(
+            "get_latest() is not applicable for PairedList curves. "
+            "Use get_data(data_from=..., data_to=..., with_data=True) instead."
+        )
+
+    @override
+    async def get_relative(self, *args: object, **kwargs: object) -> NoReturn:
+        raise util.MethodNotApplicable(
+            "get_relative() is not applicable for PairedList curves. "
+            "Use get_data(data_from=..., data_to=..., with_data=True) instead."
+        )
+
+    @override
+    async def get_absolute(self, *args: object, **kwargs: object) -> NoReturn:
+        raise util.MethodNotApplicable(
+            "get_absolute() is not applicable for PairedList curves. "
+            "Use get_data(data_from=..., data_to=..., with_data=True) instead."
+        )
+
+    @override
+    async def get_instance(self, *args: object, **kwargs: object) -> NoReturn:
+        raise util.MethodNotApplicable(
+            "get_instance() is not applicable for PairedList curves. "
+            "Use get_data(data_from=..., data_to=..., with_data=True) instead."
+        )
+
+    @override
+    async def search_instances(self, *args: object, **kwargs: object) -> NoReturn:
+        raise util.MethodNotApplicable(
+            "search_instances() is not applicable for PairedList curves. "
+            "Use get_data(data_from=..., data_to=..., with_data=False) to list instances."
+        )
+
+    @overload
+    async def get_data(
+        self,
+        data_from: DatetimeLike | None = None,
+        data_to: DatetimeLike | None = None,
+        with_data: Literal[False] = False,
+    ) -> list[util.TS] | None: ...
+
+    @overload
+    async def get_data(
+        self,
+        data_from: DatetimeLike | None = None,
+        data_to: DatetimeLike | None = None,
+        *,
+        with_data: Literal[True],
+    ) -> list[util.PairedTS] | None: ...
+
+    @overload
+    async def get_data(
+        self,
+        data_from: DatetimeLike | None = None,
+        data_to: DatetimeLike | None = None,
+        with_data: bool = False,
+    ) -> list[util.TS] | list[util.PairedTS] | None: ...
+
+    async def get_data(
+        self,
+        data_from: DatetimeLike | None = None,
+        data_to: DatetimeLike | None = None,
+        with_data: bool = False,
+    ) -> list[util.TS] | list[util.PairedTS] | None:
+        """
+        Get paired data from the PairedList curve.
+
+        This method calls the `/api/v1/timeseries/instances/paired/{id}` endpoint to retrieve
+        paired market data (e.g., price-volume pairs, bid-offer spreads).
+
+        Parameters
+        ----------
+        data_from : time-stamp, optional
+            Start date (and time) for filtering data points. If not provided,
+            all available data from the beginning will be included.
+            The timestamp can be provided as:
+
+            * datestring in format '%Y-%M-%DT%h:%m:%sZ', e.g. '2025-01-01'
+            * pandas.Timestamp object
+            * datetime.datetime object
+
+        data_to : time-stamp, optional
+            End date (and time) for filtering data points. If not provided,
+            all available data until the end will be included.
+            End dates are always excluded in the result!
+
+        with_data : bool, optional
+            If True, the response includes the actual paired data points.
+            If False (default), only metadata for each instance is returned.
+
+        Returns
+        -------
+        list of :class:`volue_insight_timeseries_async.util.PairedTS` or :class:`volue_insight_timeseries_async.util.TS`
+            Returns a list of PairedTS objects when with_data=True, containing
+            metadata and paired data points. Returns a list of regular TS objects
+            with metadata only when with_data=False.
+
+        Examples
+        --------
+        Get metadata only::
+
+            instances = curve.get_data(
+                data_from='2025-01-01',
+                data_to='2025-01-31',
+                with_data=False
+            )
+
+        Get full paired data::
+
+            instances = curve.get_data(
+                data_from='2025-01-01',
+                data_to='2025-01-31',
+                with_data=True
+            )
+
+            # Convert to pandas DataFrame
+            df = instances[0].to_pandas()
+        """
+        args: list[str] = []
+        args.append(util.make_arg('with_data', str(with_data).lower()))
+        self._add_from_to(args, data_from, data_to, prefix='data_')
+
+        astr = '&'.join(args)
+        url = f'/api/v1/timeseries/instances/paired/{self.id}?{astr}'
+        result = await self._load_ts_list(url, 'Failed to find paired data instances')
+
+        if result is None:
+            return result
+
+        # Return list of PairedTS or TS objects
+        if with_data:
+            return [util.PairedTS(input_dict=r, curve_type=util.PAIRED_LIST)
+                    for r in result]
+        return [util.TS(input_dict=r, curve_type=util.PAIRED_LIST)
+                for r in result]
+
+curveType = TaggedCurve | InstanceCurve | TaggedInstanceCurve | PairedListCurve | TimeSeriesCurve

@@ -11,7 +11,7 @@ import pytest
 import requests_mock
 
 import volue_insight_timeseries_async as vit
-from volue_insight_timeseries_async.curves_async import InstanceCurve
+from volue_insight_timeseries_async.curves_async import InstanceCurve, PairedListCurve
 from volue_insight_timeseries_async.models import JSONValue
 from volue_insight_timeseries_async.session_async import Asession, MetadataException
 
@@ -273,3 +273,18 @@ def test_async_requests_send_the_library_user_agent() -> None:
             return a._asession.headers['User-Agent']
 
     assert asyncio.run(user_agent()).startswith(f'volue-insight-timeseries/{vit.__version__} Python/')
+
+
+def test_async_paired_list_curve(monkeypatch: pytest.MonkeyPatch) -> None:
+    metadata: dict[str, JSONValue] = {**METADATA, 'curve_type': 'TAGGED_INSTANCES', 'categories': ['PAIRED-LIST']}
+    paired: JSONValue = [{'frequency': 'H', 'issue_date': '2025-01-01', 'tags': ['price', 'volume'], 'points': [[10.0, 2.0]]}]
+    a, fake = make_asession(monkeypatch, (200, metadata), (200, paired))
+    curve = asyncio.run(a.get_curve(name='curve'))
+    assert isinstance(curve, PairedListCurve)
+    result = asyncio.run(curve.get_data(data_from='2025-01-01', with_data=True))
+    assert result is not None
+    assert isinstance(result[0], vit.util.PairedTS)
+    assert result[0].tags == ['price', 'volume']
+    assert fake.urls[1].startswith('https://data-forecasts.volue.com/api/v1/timeseries/instances/paired/5?')
+    with pytest.raises(vit.util.MethodNotApplicable):
+        asyncio.run(curve.get_latest())
