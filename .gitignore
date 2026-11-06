@@ -106,3 +106,6 @@ ENV/
 
 # VS Code
 .vscode/
+
+# Local credentials, copy sampleconfig.ini to make your own
+config.ini

@@ -24,7 +24,7 @@ jobs:
         with:
           python-version: '3.14'
 
-      - run: pip install -U setuptools twine wheel
+      - run: pip install -U build twine
 
       - name: Read version
         id: read-version
@@ -53,14 +53,16 @@ jobs:
             echo "No release points at the checked-out commit ${head_sha}" >&2
             exit 1
           fi
-          echo "${tag_name}" > volue_insight_timeseries/VERSION
+          # The version lives in pyproject.toml, set it to the release tag for this build
+          sed -i "s/^version = \".*\"$/version = \"${tag_name}\"/" pyproject.toml
+          grep -qx "version = \"${tag_name}\"" pyproject.toml
           echo "VERSION=${tag_name}" >> "$GITHUB_OUTPUT"
 
       - name: Build dist
         id: build-dist
         run: |
           rm -rf dist
-          python setup.py sdist bdist_wheel
+          python -m build
 
       - name: Publish package to PyPI
         uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3

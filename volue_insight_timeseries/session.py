@@ -18,6 +18,7 @@ from urllib3.util.retry import Retry
 from volue_insight_timeseries.session_async import Asession
 
 from . import auth, curves, events, retry, util
+from ._version import __version__
 from .auth import AuthType
 from .util import CurveException, DatetimeLike, _TsFreqs
 
@@ -33,8 +34,7 @@ DEFAULT_AUTH_URLBASES = {
     AuthType.VOLUE_IDENTITY: VOLUE_IDENTITY_AUTH_URLBASE,
 }
 
-with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'VERSION')) as fv:
-    USER_AGENT = 'volue-insight-timeseries/{}'.format(fv.read().strip())
+USER_AGENT = f'volue-insight-timeseries/{__version__}'
 
 
 class ConfigException(Exception):
