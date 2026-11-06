@@ -9,9 +9,7 @@ from typing import IO, TYPE_CHECKING, ClassVar, Literal, overload
 from urllib.parse import urljoin
 
 import aiohttp
-import aiohttp.web_exceptions
 import requests
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from . import auth, curves_async, util
 from .auth import AuthType
@@ -102,6 +100,7 @@ class Asession:
         timeout: float | None = None,
         retry_update_auth: bool = False,
         auth_type: AuthType | str = AuthType.OAUTH,
+        retries: int = RETRY_COUNT,
     )->None:
         self.urlbase:str = urlbase if urlbase is not None else API_URLBASE
         self.auth:auth.OAuth | None = None
@@ -109,6 +108,9 @@ class Asession:
         self._session = requests.Session()
         self._asession: aiohttp.ClientSession | None = None
         self.retry_update_auth = retry_update_auth
+        if retries < 0:
+            raise ValueError(f'retries must be 0 or more, not {retries}')
+        self.retries = retries
         self._semaphore = asyncio.Semaphore(10)  # Limit concurrent connections
         if config_file is not None:
             self.read_config_file(config_file)
@@ -602,11 +604,6 @@ class Asession:
             raise timeout
         return res
 
-    @retry(
-        wait=wait_fixed(RETRY_DELAY),
-        stop=stop_after_attempt(RETRY_COUNT),
-        retry=retry_if_exception_type((aiohttp.ClientError, aiohttp.web_exceptions.HTTPRequestTimeout, asyncio.TimeoutError))
-    )
     async def data_request(
         self,
         req_type: Literal["GET", "POST"],
@@ -617,8 +614,11 @@ class Asession:
         authval:tuple[str,str]|None=None,
         stream: bool = False,
     ) -> JSONValue:
-        """Run a call to the backend, dealing with authentication etc."""
-        headers = self._validate_auth(data, rawdata)
+        """Run a call to the backend, dealing with authentication etc.
+
+        Retries follow the sync Session: up to ``retries`` more attempts, ``RETRY_DELAY`` seconds apart,
+        for status 408 and 5xx, connection errors and timeouts.
+        """
         if self._asession is None:
             raise MetadataException('Async session not initialized')
         if urlbase is None:
@@ -630,7 +630,44 @@ class Asession:
             databytes = data.encode() if isinstance(data, str) else json.dumps(data).encode()
         if data is None and rawdata is not None:
             databytes = rawdata
-        async with self._semaphore, self._asession.request(
+
+        retries_left = self.retries
+        while True:
+            try:
+                status_code, body = await self._send_once(self._asession, req_type, longurl, data, rawdata, databytes, authval, stream)
+            except (aiohttp.ClientSSLError, aiohttp.ClientProxyConnectionError):
+                # Like the sync Session: a retry does not fix SSL or proxy configuration
+                raise
+            except (TimeoutError, aiohttp.ClientConnectionError):
+                if retries_left <= 0:
+                    raise
+            else:
+                if retries_left <= 0 or not (status_code == 408 or 500 <= status_code < 600):
+                    break
+            retries_left -= 1
+            await asyncio.sleep(RETRY_DELAY)
+
+        # Same rules as the sync Session: 204 has no data, any other non-2xx status is an error
+        if status_code == 204:
+            return None
+        if not 200 <= status_code < 300:
+            raise util.ResponseError(status_code, body.decode(errors='replace'))
+        return json.loads(body)
+
+    async def _send_once(
+        self,
+        asession: aiohttp.ClientSession,
+        req_type: Literal["GET", "POST"],
+        longurl: str,
+        data: JSONValue,
+        rawdata: RawData | None,
+        databytes: RawData | None,
+        authval: tuple[str, str] | None,
+        stream: bool,
+    ) -> tuple[int, bytes]:
+        # Headers per attempt, so a token that expires between retries is refreshed
+        headers = self._validate_auth(data, rawdata)
+        async with self._semaphore, asession.request(
             method=req_type, url=longurl, data=databytes, headers=headers, auth=aiohttp.BasicAuth(*authval) if authval else None,
             # Per request, so a changed timeout applies even to an aiohttp session that is already open
             timeout=aiohttp.ClientTimeout(total=self.timeout),
@@ -640,13 +677,5 @@ class Asession:
                 chunks = bytearray()
                 async for chunk in resp.content.iter_chunked(1024):
                     chunks.extend(chunk)
-                body = bytes(chunks)
-            else:
-                body = await resp.read()
-            status_code = resp.status
-        # Same rules as the sync Session: 204 has no data, any other non-2xx status is an error
-        if status_code == 204:
-            return None
-        if not 200 <= status_code < 300:
-            raise util.ResponseError(status_code, body.decode(errors='replace'))
-        return json.loads(body)
+                return resp.status, bytes(chunks)
+            return resp.status, await resp.read()

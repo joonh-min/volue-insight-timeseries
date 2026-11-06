@@ -669,6 +669,9 @@ class Session:
         self._async_client.urlbase = self.urlbase
         self._async_client.timeout = self.timeout
         self._async_client.retry_update_auth = self.retry_update_auth
+        # The async client counts retries only, so a Retry without an int total falls back to the default
+        total = self._retries.total
+        self._async_client.retries = 0 if total is False else total if isinstance(total, int) else RETRY_COUNT
         # Share this session's login, so the async client needs no token request of its own
         self._async_client.auth = self.auth
         if self._async_client._asession is None or self._async_client._asession.closed:
