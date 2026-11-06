@@ -61,6 +61,11 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["volue_insight_timeseries_async*", "vit_async*"]
 
+# py.typed tells type checkers in other projects to read this package's type hints
+[tool.setuptools.package-data]
+volue_insight_timeseries_async = ["py.typed"]
+vit_async = ["py.typed"]
+
 [tool.pytest.ini_options]
 addopts = "--cov volue_insight_timeseries_async"
 python_files = "unittest/*.py"
